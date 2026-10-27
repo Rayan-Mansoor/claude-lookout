@@ -1,0 +1,19 @@
+{
+	"name": "claude-lookout",
+	"version": "0.1.0",
+	"description": "See what your local Claude Code sessions are doing from any device: read-only, end-to-end encrypted, no Claude login on the viewer.",
+	"license": "MIT",
+	"type": "module",
+	"bin": {
+		"claude-lookout": "./src/cli.ts"
+	},
+	"engines": {
+		"node": ">=22.18"
+	},
+	"scripts": {
+		"typecheck": "tsc -p tsconfig.json"
+	},
+	"dependencies": {
+		"@claude-lookout/protocol": "*"
+	}
+}
