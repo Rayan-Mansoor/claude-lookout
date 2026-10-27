@@ -23,7 +23,15 @@ export interface DirectTransport {
 	publicUrl?: string;
 }
 
-export type Transport = DirectTransport;
+/** Publish to a relay on the internet, so the dashboard works from anywhere, any time. */
+export interface RelayTransport {
+	mode: "relay";
+	url: string;
+	/** The key the relay's owner set, if they set one. */
+	key?: string;
+}
+
+export type Transport = DirectTransport | RelayTransport;
 
 export interface Config {
 	machine: Machine;
@@ -78,8 +86,43 @@ export function viewLink(config: Config): string {
 }
 
 export function dashboardUrl(transport: Transport): string {
+	if (transport.mode === "relay") return transport.url.replace(/\/+$/, "");
 	if (transport.publicUrl) return transport.publicUrl.replace(/\/+$/, "");
 	const host =
 		transport.host === "127.0.0.1" || transport.host === "0.0.0.0" ? "localhost" : transport.host;
 	return `http://${host}:${transport.port}`;
+}
+
+const JOIN_PREFIX = "cl1.";
+
+/** Everything another machine needs to report into the same space. Contains the publish secret. */
+export function joinCode(config: Config): string | undefined {
+	if (config.transport.mode !== "relay") return undefined;
+	const { view, publish, control } = config.space;
+	const { url, key } = config.transport;
+	const payload = JSON.stringify({
+		u: url,
+		v: view,
+		p: publish,
+		c: control,
+		...(key ? { k: key } : {}),
+	});
+	return JOIN_PREFIX + Buffer.from(payload).toString("base64url");
+}
+
+export function parseJoinCode(code: string): Pick<Config, "space" | "transport"> | undefined {
+	if (!code.startsWith(JOIN_PREFIX)) return undefined;
+	try {
+		const { u, v, p, c, k } = JSON.parse(
+			Buffer.from(code.slice(JOIN_PREFIX.length), "base64url").toString("utf8"),
+		);
+		if (![u, v, p, c].every((s) => typeof s === "string")) return undefined;
+		if (k !== undefined && typeof k !== "string") return undefined;
+		return {
+			space: { view: v, publish: p, control: c },
+			transport: { mode: "relay", url: u, ...(k ? { key: k } : {}) },
+		};
+	} catch {
+		return undefined;
+	}
 }

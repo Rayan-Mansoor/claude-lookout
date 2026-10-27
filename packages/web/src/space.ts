@@ -77,13 +77,21 @@ export function supersedes(
 	return !held || held.snapshot.sentAt <= snapshot.sentAt;
 }
 
-/** Live, decrypted state of every machine in the space. */
+/** How long a machine can stay silent before it counts as offline (it reports every 30s). */
+export const OFFLINE_AFTER_MS = 75_000;
+
+/**
+ * Live, decrypted state of every machine in the space. The stream only stays open while the
+ * page is on screen, so a forgotten tab never keeps a relay busy.
+ */
 export function useSpace(viewSecret: string) {
 	const [machines, setMachines] = useState<Map<string, MachineState>>(new Map());
 	const [connection, setConnection] = useState<Connection>("connecting");
+	// Server clock minus this device's clock, for judging how long ago a machine reported.
+	const [clockOffset, setClockOffset] = useState(0);
 
 	useEffect(() => {
-		let stopped = false;
+		let generation = 0;
 		let abort: AbortController | undefined;
 		let retryTimer: ReturnType<typeof setTimeout> | undefined;
 		let attempt = 0;
@@ -130,7 +138,8 @@ export function useSpace(viewSecret: string) {
 		};
 
 		const connect = async () => {
-			if (stopped) return;
+			const current = ++generation;
+			abort?.abort();
 			const stream = new AbortController();
 			abort = stream;
 			// A link that drops without closing (say, switching from Wi-Fi to mobile data) would
@@ -161,6 +170,8 @@ export function useSpace(viewSecret: string) {
 						if (event === "ready") {
 							ready = true;
 							attempt = 0;
+							const info = JSON.parse(data) as { now?: number };
+							if (typeof info.now === "number") setClockOffset(info.now - Date.now());
 							setConnection("live");
 						} else if (event === "machine") {
 							// Before "ready" the server replays what it stored; after it, updates are live.
@@ -172,35 +183,36 @@ export function useSpace(viewSecret: string) {
 				throw new Error("stream ended");
 			} catch {
 				clearTimeout(stall);
-				if (stopped) return;
+				if (current !== generation || document.visibilityState === "hidden") return;
 				setConnection("retrying");
 				attempt++;
-				retryTimer = setTimeout(connect, Math.min(30_000, 1000 * 2 ** Math.min(attempt, 5)));
+				retryTimer = setTimeout(connect, Math.min(30_000, 500 * 2 ** Math.min(attempt, 6)));
 			}
 		};
 
-		const onVisible = () => {
-			// Phones suspend background tabs and their streams; reconnect when the page comes back.
+		const onVisibility = () => {
+			clearTimeout(retryTimer);
 			if (document.visibilityState === "visible") {
-				clearTimeout(retryTimer);
-				abort?.abort();
 				attempt = 0;
 				void connect();
+			} else {
+				generation++;
+				abort?.abort();
 			}
 		};
 
 		void restore().catch(() => {});
 		void connect();
-		document.addEventListener("visibilitychange", onVisible);
+		document.addEventListener("visibilitychange", onVisibility);
 		return () => {
-			stopped = true;
+			generation++;
 			clearTimeout(retryTimer);
 			abort?.abort();
-			document.removeEventListener("visibilitychange", onVisible);
+			document.removeEventListener("visibilitychange", onVisibility);
 		};
 	}, [viewSecret]);
 
-	return { machines, connection };
+	return { machines, connection, clockOffset };
 }
 
 /** A clock that ticks every second, for "working for 3m" labels. */

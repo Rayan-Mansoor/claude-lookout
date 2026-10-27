@@ -12,6 +12,8 @@ import type { Sealed } from "./crypto.ts";
 export interface SpaceRegistration {
 	viewHash: string;
 	publishHash: string;
+	/** The key a relay's owner set to decide who may create spaces on it; never stored. */
+	relayKey?: string;
 }
 
 /** One machine's latest sealed snapshot, as streamed to viewers. */

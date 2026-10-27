@@ -19,6 +19,9 @@ Usage:
 
 Setup options:
   --yes                      Apply settings changes without asking
+  --relay <address>          Publish through your relay, to see sessions from anywhere
+  --relay-key <key>          The key your relay asks for, if its owner set one
+  --join <code>              Show this computer on another computer's dashboard
   --host <address>           Where the dashboard listens (default 127.0.0.1)
   --port <number>            Dashboard port (default 4777)
   --url <address>            The address other devices use to reach the dashboard
@@ -35,6 +38,9 @@ const { positionals, values } = parseArgs({
 		host: { type: "string" },
 		port: { type: "string" },
 		url: { type: "string" },
+		relay: { type: "string" },
+		"relay-key": { type: "string" },
+		join: { type: "string" },
 	},
 });
 const [command] = positionals;
@@ -51,12 +57,18 @@ switch (command) {
 		const port = option("port");
 		const host = option("host");
 		const url = option("url");
+		const relay = option("relay");
+		const relayKey = option("relay-key");
+		const join = option("join");
 		try {
 			await runSetup({
 				yes: values.yes === true,
 				...(host ? { host } : {}),
 				...(port ? { port: Number(port) } : {}),
 				...(url ? { url } : {}),
+				...(relay ? { relay } : {}),
+				...(relayKey ? { relayKey } : {}),
+				...(join ? { join } : {}),
 			});
 		} catch (err) {
 			console.error((err as Error).message);

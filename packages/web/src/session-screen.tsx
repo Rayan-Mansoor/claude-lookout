@@ -451,11 +451,14 @@ export function SessionScreen({
 	sessionId,
 	now,
 	loading,
+	offlineFor,
 }: {
 	machine: MachineState | undefined;
 	sessionId: string;
 	now: number;
 	loading: boolean;
+	/** How long the machine has been silent, when it counts as offline. */
+	offlineFor?: number | undefined;
 }) {
 	const session = machine?.snapshot.sessions.find((s) => s.id === sessionId);
 
@@ -497,6 +500,12 @@ export function SessionScreen({
 			</header>
 
 			<div class="mt-6 space-y-4">
+				{offlineFor !== undefined && (
+					<p class="rounded-2xl bg-surface-2 px-4 py-3 text-sm text-muted">
+						{machine.snapshot.machine.name} is offline · last seen {formatDuration(offlineFor)} ago.
+						This is the last known state.
+					</p>
+				)}
 				<Panel>
 					<div class="flex flex-wrap items-center gap-x-3 gap-y-2">
 						<span

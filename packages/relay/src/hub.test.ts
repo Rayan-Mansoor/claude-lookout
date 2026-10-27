@@ -7,14 +7,14 @@ import {
 	randomSecret,
 } from "@claude-lookout/protocol";
 import { describe, expect, it } from "vitest";
-import { Hub, MAX_BODY } from "./hub.ts";
+import { Hub, type HubOptions, MAX_BODY } from "./hub.ts";
 import { MemoryStore } from "./store.ts";
 
 const BASE = "http://hub.test";
 const sealed = { iv: "aaaa", ct: "bbbb" };
 
-async function setup() {
-	const hub = new Hub(new MemoryStore());
+async function setup(options = {}) {
+	const hub = new Hub(new MemoryStore(), options);
 	const viewSecret = randomSecret();
 	const publishSecret = randomSecret();
 	const { spaceId, viewToken } = await deriveSpace(viewSecret);
@@ -32,7 +32,12 @@ async function setup() {
 		call(API.space(spaceId), { method: "PUT", body: JSON.stringify(registration) });
 	const publish = (machine: string, token = publishToken) =>
 		call(API.machine(spaceId, machine), { method: "PUT", body: JSON.stringify(sealed), token });
-	return { hub, spaceId, viewToken, publishToken, call, register, publish };
+	const registerWith = (relayKey?: string) =>
+		call(API.space(spaceId), {
+			method: "PUT",
+			body: JSON.stringify({ ...registration, ...(relayKey ? { relayKey } : {}) }),
+		});
+	return { hub, spaceId, viewToken, publishToken, call, register, registerWith, publish };
 }
 
 async function readEvents(response: Response, count: number) {
@@ -97,6 +102,16 @@ describe("Hub", () => {
 		expect(hub.viewerCount(spaceId)).toBe(0);
 	});
 
+	it("ends viewer streams after the configured time", async () => {
+		const { hub, register, call, spaceId, viewToken } = await setup({ maxStreamMs: 50 });
+		await register();
+		const res = await call(API.events(spaceId), { token: viewToken });
+		const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+		let done = false;
+		while (!done) done = (await reader.read()).done;
+		expect(hub.viewerCount(spaceId)).toBe(0);
+	});
+
 	it("rejects unknown routes and malformed bodies", async () => {
 		const { call, register, spaceId, publishToken } = await setup();
 		expect((await call("/api/spaces/nothex")).status).toBe(404);
@@ -107,6 +122,15 @@ describe("Hub", () => {
 			token: publishToken,
 		});
 		expect(bad.status).toBe(400);
+	});
+
+	it("only creates spaces for whoever holds the relay's key, when it has one", async () => {
+		const { registerWith, publish } = await setup({ relayKey: "owner-key" });
+		expect((await registerWith()).status).toBe(403);
+		expect((await registerWith("wrong")).status).toBe(403);
+		expect((await publish("mac")).status).toBe(401);
+		expect((await registerWith("owner-key")).status).toBe(201);
+		expect((await publish("mac")).status).toBe(200);
 	});
 
 	it("refuses a body that says it is over the limit without reading it", async () => {

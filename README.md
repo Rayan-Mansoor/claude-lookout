@@ -74,7 +74,28 @@ npx claude-lookout status
 
 ## Hosting
 
-By default the dashboard is served by claude-lookout itself, on `http://localhost:4777`, while Claude Code runs. That works as-is on the same computer. To open it from your phone, make that address reachable:
+claude-lookout needs somewhere your phone can reach. There are two ways to provide it.
+
+### A relay on Cloudflare (recommended)
+
+A small relay on Cloudflare's free Workers plan keeps the dashboard reachable from anywhere, shows several computers side by side, and still shows the last known state when a computer is asleep ("Offline · last seen 12m ago"). It only ever holds encrypted data.
+
+Deploy your own once (needs a free Cloudflare account):
+
+```sh
+git clone https://github.com/<you>/claude-lookout && cd claude-lookout
+npm ci && npm run build
+npm run deploy -w @claude-lookout/relay     # prints https://claude-lookout.<you>.workers.dev
+npx claude-lookout setup --relay https://claude-lookout.<you>.workers.dev
+```
+
+Setup then prints a view link on your relay, plus a `setup --join …` command. Run that command on any other computer to put its sessions on the same dashboard.
+
+Free-plan limits are far above what one person needs: each computer sends a small update when something changes and a heartbeat every 30 seconds, and the dashboard only holds a connection open while it is on screen.
+
+### Directly from your computer
+
+Without a relay, the dashboard is served by claude-lookout itself, on `http://localhost:4777`, while Claude Code runs. That works as-is on the same computer. To open it from your phone, make that address reachable:
 
 - **Tailscale** (private to your devices): run `tailscale serve --bg 4777`, then `npx claude-lookout setup --url https://<your-machine>.<your-tailnet>.ts.net`. Tailscale provides HTTPS, which phones need to install the dashboard as an app.
 - **Your local network**: `npx claude-lookout setup --host 0.0.0.0 --url http://<your-machine>.local:4777`. Only use this on networks you trust.

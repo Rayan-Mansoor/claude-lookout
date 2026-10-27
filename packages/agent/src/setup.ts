@@ -15,7 +15,15 @@ import { delimiter, dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { setTimeout as wait } from "node:timers/promises";
 import QRCode from "qrcode";
-import { type Config, loadConfig, viewLink } from "./config.ts";
+import {
+	type Config,
+	DEFAULT_PORT,
+	type DirectTransport,
+	joinCode,
+	loadConfig,
+	parseJoinCode,
+	viewLink,
+} from "./config.ts";
 import { lookoutHome, paths } from "./home.ts";
 import { startAgent } from "./hook.ts";
 import { isAgentProcess, lockHolder } from "./lock.ts";
@@ -35,6 +43,12 @@ export interface SetupOptions {
 	port?: number;
 	/** The address viewers use, when it differs from host:port. */
 	url?: string;
+	/** Publish through the relay at this address instead of serving the dashboard locally. */
+	relay?: string;
+	/** The key the relay's owner set, if any. */
+	relayKey?: string;
+	/** Report into an existing space, using the code another machine's setup printed. */
+	join?: string;
 }
 
 async function confirm(question: string, yes: boolean): Promise<boolean> {
@@ -199,13 +213,43 @@ export async function printViewLink(config: Config): Promise<void> {
 				"\nTo open it from other devices, see Hosting in the README.",
 		);
 	}
+	const join = joinCode(config);
+	if (join) {
+		console.log(
+			"To show another computer's sessions on the same dashboard, run this there" +
+				" (keep it private: it lets that computer publish):" +
+				`\n\n  npx claude-lookout setup --join ${join}\n`,
+		);
+	}
 }
 
-function applyOptions(config: Config, options: SetupOptions): Config {
+/** The config after this run's options: join a space, switch to a relay, or tune Direct mode. */
+export function applyOptions(config: Config, options: SetupOptions): Config {
+	if (options.join) {
+		const joined = parseJoinCode(options.join);
+		if (!joined)
+			throw new Error("That join code isn't valid. Copy it again from the other computer.");
+		return { ...config, ...joined };
+	}
+	if (options.relay) {
+		const url = options.relay.replace(/\/+$/, "");
+		return {
+			...config,
+			transport: { mode: "relay", url, ...(options.relayKey ? { key: options.relayKey } : {}) },
+		};
+	}
+	if (options.relayKey && config.transport.mode === "relay") {
+		return { ...config, transport: { ...config.transport, key: options.relayKey } };
+	}
+	if (!options.host && !options.port && !options.url) return config;
+	const direct: DirectTransport =
+		config.transport.mode === "direct"
+			? config.transport
+			: { mode: "direct", host: "127.0.0.1", port: DEFAULT_PORT };
 	return {
 		...config,
 		transport: {
-			...config.transport,
+			...direct,
 			...(options.host ? { host: options.host } : {}),
 			...(options.port ? { port: options.port } : {}),
 			...(options.url ? { publicUrl: options.url } : {}),

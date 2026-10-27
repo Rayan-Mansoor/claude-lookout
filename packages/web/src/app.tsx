@@ -1,4 +1,4 @@
-import { BLOCKED_STATES, type SessionView } from "@claude-lookout/protocol";
+import { BLOCKED_STATES, formatDuration, type SessionView } from "@claude-lookout/protocol";
 import { useEffect, useState } from "preact/hooks";
 import { useRoute } from "./router.ts";
 import { SessionCard } from "./session-card.tsx";
@@ -8,6 +8,7 @@ import {
 	type Connection,
 	LAST_UPDATES_KEY,
 	type MachineState,
+	OFFLINE_AFTER_MS,
 	parseViewSecret,
 	useNow,
 	useSpace,
@@ -101,11 +102,28 @@ function Logo() {
 	);
 }
 
-function MachineGroup({ machine, now }: { machine: MachineState; now: number }) {
+function MachineGroup({
+	machine,
+	now,
+	serverNow,
+}: {
+	machine: MachineState;
+	now: number;
+	serverNow: number;
+}) {
 	const sessions = [...machine.snapshot.sessions].sort(byUrgency);
+	const silentFor = serverNow - machine.receivedAt;
+	const offline = silentFor > OFFLINE_AFTER_MS;
 	return (
-		<section class="space-y-2.5">
-			<h2 class="px-1 text-sm font-medium text-muted">{machine.snapshot.machine.name}</h2>
+		<section class={`space-y-2.5 transition-opacity ${offline ? "opacity-55" : ""}`}>
+			<h2 class="flex items-baseline justify-between gap-3 px-1 text-sm">
+				<span class="truncate font-medium text-muted">{machine.snapshot.machine.name}</span>
+				{offline && (
+					<span class="shrink-0 text-muted">
+						Offline · last seen {formatDuration(silentFor)} ago
+					</span>
+				)}
+			</h2>
 			{sessions.length === 0 ? (
 				<p class="rounded-2xl border border-dashed border-line px-4 py-6 text-center text-sm text-muted">
 					No Claude Code sessions are open.
@@ -125,13 +143,15 @@ function MachineGroup({ machine, now }: { machine: MachineState; now: number }) 
 }
 
 function Dashboard({ secret, onForget }: { secret: string; onForget: () => void }) {
-	const { machines, connection } = useSpace(secret);
+	const { machines, connection, clockOffset } = useSpace(secret);
 	const now = useNow();
+	const serverNow = now + clockOffset;
 	const route = useRoute();
 	const list = [...machines.values()].sort((a, b) =>
 		a.snapshot.machine.name.localeCompare(b.snapshot.machine.name),
 	);
 	const waiting = list
+		.filter((m) => serverNow - m.receivedAt <= OFFLINE_AFTER_MS)
 		.flatMap((m) => m.snapshot.sessions)
 		.filter((s) => BLOCKED_STATES.includes(s.state)).length;
 
@@ -141,6 +161,7 @@ function Dashboard({ secret, onForget }: { secret: string; onForget: () => void 
 
 	if (route.name === "session") {
 		const machine = machines.get(route.machine);
+		const silentFor = machine ? serverNow - machine.receivedAt : 0;
 		return (
 			<SessionScreen
 				machine={machine}
@@ -148,6 +169,7 @@ function Dashboard({ secret, onForget }: { secret: string; onForget: () => void 
 				// Times come from that machine's clock, so read them against it.
 				now={now + (machine?.clockOffset ?? 0)}
 				loading={connection !== "live"}
+				offlineFor={silentFor > OFFLINE_AFTER_MS ? silentFor : undefined}
 			/>
 		);
 	}
@@ -190,7 +212,7 @@ function Dashboard({ secret, onForget }: { secret: string; onForget: () => void 
 							: "Waiting for your computer…"}
 					</p>
 				) : (
-					list.map((m) => <MachineGroup key={m.id} machine={m} now={now} />)
+					list.map((m) => <MachineGroup key={m.id} machine={m} now={now} serverNow={serverNow} />)
 				)}
 			</div>
 

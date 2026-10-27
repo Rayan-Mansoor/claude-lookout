@@ -49,12 +49,27 @@ function isSealed(value: unknown): value is Sealed {
  * and streams updates to viewers. It never holds a key, so it can't read what it relays.
  * Runs unchanged inside the agent, a Cloudflare Durable Object, or a Node server.
  */
+export interface HubOptions {
+	/**
+	 * End viewer streams after this long; the dashboard reconnects while it's on screen.
+	 * Bounds how long a forgotten tab keeps a hosted relay busy.
+	 */
+	maxStreamMs?: number;
+	/**
+	 * When set, only a registration that presents this key creates a space, so strangers can't
+	 * store data on a relay they found. Spaces already registered keep working without it.
+	 */
+	relayKey?: string;
+}
+
 export class Hub {
 	private readonly store: HubStore;
+	private readonly options: HubOptions;
 	private readonly viewers = new Map<string, Set<Send>>();
 
-	constructor(store: HubStore) {
+	constructor(store: HubStore, options: HubOptions = {}) {
 		this.store = store;
+		this.options = options;
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -77,6 +92,10 @@ export class Hub {
 			!/^[0-9a-f]{64}$/.test(body.publishHash)
 		) {
 			return error(400, "invalid registration");
+		}
+		const key = this.options.relayKey;
+		if (key && (await hashToken(String(body.relayKey ?? ""))) !== (await hashToken(key))) {
+			return error(403, "this relay needs its key to register");
 		}
 		const existing = await this.store.get<SpaceRegistration>(`space:${space}`);
 		if (existing) {
@@ -132,7 +151,8 @@ export class Hub {
 					}
 				};
 				for (const update of machines.values()) send("machine", update);
-				send("ready", {});
+				// The server's clock, so viewers can tell how long ago a machine last reported.
+				send("ready", { now: Date.now() });
 				const keepalive = setInterval(() => {
 					try {
 						controller.enqueue(encoder.encode(": keepalive\n\n"));
@@ -140,11 +160,18 @@ export class Hub {
 						cleanup();
 					}
 				}, KEEPALIVE_MS);
+				const expiry = this.options.maxStreamMs
+					? setTimeout(() => {
+							cleanup();
+							controller.close();
+						}, this.options.maxStreamMs)
+					: undefined;
 				const set = this.viewers.get(space) ?? new Set();
 				set.add(send);
 				this.viewers.set(space, set);
 				cleanup = () => {
 					clearInterval(keepalive);
+					if (expiry) clearTimeout(expiry);
 					set.delete(send);
 					if (set.size === 0) this.viewers.delete(space);
 				};

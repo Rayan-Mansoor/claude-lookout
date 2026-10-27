@@ -1,0 +1,19 @@
+# Cloudflare relay for claude-lookout. Deploy with `npm run deploy -w @claude-lookout/relay`
+# after `npm run build` at the repository root. Fits the Workers free plan.
+name = "claude-lookout"
+main = "src/worker/index.ts"
+compatibility_date = "2026-10-01"
+
+[assets]
+directory = "../web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+[[durable_objects.bindings]]
+name = "SPACES"
+class_name = "Space"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Space"]

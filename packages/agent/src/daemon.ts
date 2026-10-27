@@ -18,12 +18,15 @@ import { acquireLock, releaseLock } from "./lock.ts";
 import { ProgressTracker } from "./progress.ts";
 import { followTranscripts, TranscriptReader } from "./transcript.ts";
 import { directPublisher } from "./transport/direct.ts";
-import { throttled } from "./transport/publisher.ts";
+import { type Publisher, throttled } from "./transport/publisher.ts";
+import { relayPublisher } from "./transport/relay.ts";
 import { checkSessions, findClaudePid } from "./watch.ts";
 
 /** How long the agent lingers once every Claude Code session has closed. */
 const IDLE_MS = Number(process.env.CLAUDE_LOOKOUT_IDLE_MS ?? 5 * 60_000);
 const TICK_MS = Math.min(30_000, IDLE_MS);
+/** How often the latest snapshot is re-sent, so viewers can tell this machine is still online. */
+const HEARTBEAT_MS = 30_000;
 /** How often open sessions are checked for interrupts and closed terminals. */
 const WATCH_MS = 2000;
 
@@ -122,11 +125,15 @@ export async function runDaemon(): Promise<void> {
 	const agent = new Agent(config, { gitBranch }, Date.now, findClaudePid);
 	loadSessions(agent);
 
-	const publisher = await directPublisher(config.transport, config.space, log);
+	const publisher: Publisher =
+		config.transport.mode === "relay"
+			? await relayPublisher(config.transport, config.space, log)
+			: await directPublisher(config.transport, config.space, log);
 	const publish = throttled(publisher, 250, (err) => log(`publish failed: ${err.message}`));
 	agent.onChange((snapshot) => publish(snapshot, config.machine.id));
 	new ProgressTracker(agent).start();
 	publish(agent.snapshot(), config.machine.id);
+	setInterval(() => publish(agent.snapshot(), config.machine.id), HEARTBEAT_MS);
 
 	const saveSessions = () =>
 		saveFile(paths.sessions(), JSON.stringify([...agent.sessions.values()]));
@@ -139,15 +146,20 @@ export async function runDaemon(): Promise<void> {
 	quietUnlink(paths.socket());
 
 	let stopping = false;
-	shutdown = (reason: string) => {
+	shutdown = async (reason: string) => {
 		if (stopping) return;
 		stopping = true;
 		log(`agent ${process.pid} stopping: ${reason}`);
 		clearTimeout(saveTimer);
 		saveSessions();
 		server.close();
-		publisher.stop();
 		quietUnlink(paths.socket());
+		// Leave viewers with the final state rather than whatever was last throttled out.
+		await Promise.race([
+			publisher.publish(agent.snapshot(), config.machine.id).catch(() => {}),
+			new Promise((resolve) => setTimeout(resolve, 3000)),
+		]);
+		publisher.stop();
 		releaseLock(paths.lock());
 		process.exit(0);
 	};
