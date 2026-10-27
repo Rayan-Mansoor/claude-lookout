@@ -1,8 +1,10 @@
-import type { Snapshot } from "@claude-lookout/protocol";
+import type { Notice, NotifyResult, Snapshot } from "@claude-lookout/protocol";
 
 /** Somewhere snapshots go: the dashboard on this machine, or a relay. */
 export interface Publisher {
 	publish(snapshot: Snapshot, machineId: string): Promise<void>;
+	/** Send a push notification to every device that turned them on. */
+	notify(notice: Notice): Promise<NotifyResult>;
 	stop(): void;
 }
 

@@ -6,6 +6,8 @@ import {
 	deriveSpace,
 	deriveToken,
 	hashToken,
+	type Notice,
+	type NotifyResult,
 	type Snapshot,
 	seal,
 } from "@claude-lookout/protocol";
@@ -64,6 +66,17 @@ export async function directPublisher(
 		async publish(snapshot: Snapshot, machineId: string) {
 			const sealed = await seal(keys.key, snapshot);
 			await call(API.machine(keys.spaceId, machineId), "PUT", sealed, publishToken);
+		},
+		async notify(notice: Notice) {
+			const sealed = await seal(keys.key, notice);
+			const res = await call(
+				`${API.space(keys.spaceId)}/push/notify`,
+				"POST",
+				sealed,
+				publishToken,
+			);
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			return (await res.json()) as NotifyResult;
 		},
 		stop() {
 			server?.close();

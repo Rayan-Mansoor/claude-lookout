@@ -22,6 +22,7 @@ export class Agent {
 	private readonly resolvePid: (pid: number) => number | undefined;
 	private readonly pids = new Map<number, number>();
 	private readonly listeners = new Set<(snapshot: Snapshot) => void>();
+	private readonly transitionListeners = new Set<(session: Session) => void>();
 	private readonly eventListeners = new Set<(session: Session, input: HookInput) => void>();
 
 	constructor(
@@ -42,10 +43,12 @@ export class Agent {
 		const pid = event.pid === undefined ? undefined : this.claudePid(event.pid);
 		const { pid: _, ...rest } = event;
 		const resolved: HookEvent = pid === undefined ? rest : { ...rest, pid };
-		const after = reduce(this.sessions.get(id), resolved, this.ctx);
+		const before = this.sessions.get(id);
+		const after = reduce(before, resolved, this.ctx);
 		this.sessions.set(id, after);
 		this.lastEventAt = this.now();
 		this.changed();
+		if (before?.state !== after.state) this.transitioned(after);
 		for (const listener of this.eventListeners) listener(after, event.input);
 	}
 
@@ -68,8 +71,10 @@ export class Agent {
 
 	/** Replace a session wholesale, e.g. after a watcher notices it ended. */
 	update(session: Session): void {
+		const before = this.sessions.get(session.id);
 		this.sessions.set(session.id, session);
 		this.changed();
+		if (before?.state !== session.state) this.transitioned(session);
 	}
 
 	/** Found pids are kept; a lookup that failed is tried again on the next event. */
@@ -118,6 +123,16 @@ export class Agent {
 	onEvent(listener: (session: Session, input: HookInput) => void): () => void {
 		this.eventListeners.add(listener);
 		return () => this.eventListeners.delete(listener);
+	}
+
+	/** Called with the session each time it moves into a new state. */
+	onTransition(listener: (session: Session) => void): () => void {
+		this.transitionListeners.add(listener);
+		return () => this.transitionListeners.delete(listener);
+	}
+
+	private transitioned(session: Session): void {
+		for (const listener of this.transitionListeners) listener(session);
 	}
 
 	private changed(): void {

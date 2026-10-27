@@ -112,6 +112,107 @@ describe("Hub", () => {
 		expect(hub.viewerCount(spaceId)).toBe(0);
 	});
 
+	it("hands out a push key, stores subscriptions and forwards sealed notifications", async () => {
+		const sent: { endpoint: string; payload: string }[] = [];
+		const { register, call, spaceId, viewToken, publishToken } = await setup({
+			sendPush: async (sub: { endpoint: string }, payload: string) => {
+				sent.push({ endpoint: sub.endpoint, payload });
+				return sub.endpoint.endsWith("gone") ? 410 : 201;
+			},
+		});
+		await register();
+		const key = await call(`${API.space(spaceId)}/push/key`, { token: viewToken });
+		expect(((await key.json()) as { publicKey: string }).publicKey).toMatch(/^[A-Za-z0-9_-]{87}$/);
+
+		const subscribe = (endpoint: string, id: string) =>
+			call(`${API.space(spaceId)}/push/subscriptions/${id.repeat(64)}`, {
+				method: "PUT",
+				token: viewToken,
+				body: JSON.stringify({ endpoint, keys: { p256dh: "x", auth: "y" } }),
+			});
+		expect((await subscribe("https://fcm.googleapis.com/fcm/send/phone", "a")).status).toBe(200);
+		expect((await subscribe("https://fcm.googleapis.com/fcm/send/gone", "b")).status).toBe(200);
+
+		const notify = () =>
+			call(`${API.space(spaceId)}/push/notify`, {
+				method: "POST",
+				token: publishToken,
+				body: JSON.stringify(sealed),
+			});
+		expect(await (await notify()).json()).toEqual({ devices: 2, delivered: 1, failures: [410] });
+		expect(JSON.parse(sent[0]?.payload ?? "")).toEqual({ sealed });
+		sent.length = 0;
+		await notify();
+		expect(sent.map((s) => s.endpoint)).toEqual(["https://fcm.googleapis.com/fcm/send/phone"]);
+
+		const asViewer = await call(`${API.space(spaceId)}/push/notify`, {
+			method: "POST",
+			token: viewToken,
+			body: JSON.stringify(sealed),
+		});
+		expect(asViewer.status).toBe(401);
+	});
+
+	it("only sends to browser push services", async () => {
+		const { register, call, spaceId, viewToken } = await setup();
+		await register();
+		const subscribe = (endpoint: string) =>
+			call(`${API.space(spaceId)}/push/subscriptions/${"c".repeat(64)}`, {
+				method: "PUT",
+				token: viewToken,
+				body: JSON.stringify({ endpoint, keys: { p256dh: "x", auth: "y" } }),
+			});
+		for (const endpoint of [
+			"https://127.0.0.1/hook",
+			"https://intranet.local/admin",
+			"https://fcm.googleapis.com.evil.test/x",
+			"https://fcm.googleapis.com:8443/x",
+			"http://fcm.googleapis.com/x",
+		]) {
+			expect((await subscribe(endpoint)).status, endpoint).toBe(400);
+		}
+		for (const endpoint of [
+			"https://fcm.googleapis.com/fcm/send/x",
+			"https://updates.push.services.mozilla.com/wpush/v2/x",
+			"https://web.push.apple.com/x",
+			"https://wns2-par02p.notify.windows.com/w/?token=x",
+		]) {
+			expect((await subscribe(endpoint)).status, endpoint).toBe(200);
+		}
+	});
+
+	it("makes room for a new device by dropping the longest-standing subscription", async () => {
+		const sent: string[] = [];
+		const { register, call, spaceId, viewToken, publishToken } = await setup({
+			sendPush: async (sub: { endpoint: string }) => {
+				sent.push(sub.endpoint);
+				return 201;
+			},
+		});
+		await register();
+		for (let i = 0; i <= 20; i++) {
+			const id = i.toString(16).padStart(64, "0");
+			const res = await call(`${API.space(spaceId)}/push/subscriptions/${id}`, {
+				method: "PUT",
+				token: viewToken,
+				body: JSON.stringify({
+					endpoint: `https://fcm.googleapis.com/fcm/send/${i}`,
+					keys: { p256dh: "x", auth: "y" },
+				}),
+			});
+			expect(res.status).toBe(200);
+			await new Promise((resolve) => setTimeout(resolve, 2));
+		}
+		await call(`${API.space(spaceId)}/push/notify`, {
+			method: "POST",
+			token: publishToken,
+			body: JSON.stringify(sealed),
+		});
+		expect(sent).toHaveLength(20);
+		expect(sent).not.toContain("https://fcm.googleapis.com/fcm/send/0");
+		expect(sent).toContain("https://fcm.googleapis.com/fcm/send/20");
+	});
+
 	it("rejects unknown routes and malformed bodies", async () => {
 		const { call, register, spaceId, publishToken } = await setup();
 		expect((await call("/api/spaces/nothex")).status).toBe(404);

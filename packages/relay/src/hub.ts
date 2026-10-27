@@ -1,18 +1,36 @@
 import {
 	hashToken,
 	type MachineUpdate,
+	type NotifyResult,
 	type Sealed,
 	type SpaceRegistration,
 } from "@claude-lookout/protocol";
 import type { HubStore } from "./store.ts";
+import {
+	generateVapidKeys,
+	isPushService,
+	type PushSubscriptionJSON,
+	sendPush,
+	type VapidKeys,
+} from "./webpush.ts";
 
-const ROUTE = /^\/api\/spaces\/([0-9a-f]{32})(?:\/(events|machines\/([A-Za-z0-9-]{1,64})))?$/;
+const ROUTE =
+	/^\/api\/spaces\/([0-9a-f]{32})(?:\/(events|machines\/([A-Za-z0-9-]{1,64})|push\/key|push\/notify|push\/subscriptions\/([0-9a-f]{64})))?$/;
 /** Room for the largest snapshot a machine sends, once sealed. */
 export const MAX_BODY = 1536 * 1024;
 const MAX_MACHINES = 32;
+const MAX_SUBSCRIPTIONS = 20;
+/** Push services accept about 4 KB; leave room for encryption overhead. */
+const MAX_NOTIFICATION = 3000;
+const DEFAULT_PUSH_SUBJECT = "mailto:claude-lookout@users.noreply.github.com";
 const KEEPALIVE_MS = 25_000;
 
 type Send = (event: string, data: unknown) => void;
+
+/** A device's subscription as the hub keeps it. */
+interface StoredSubscription extends PushSubscriptionJSON {
+	addedAt?: number;
+}
 
 function json(status: number, body: unknown): Response {
 	return new Response(JSON.stringify(body), {
@@ -60,6 +78,14 @@ export interface HubOptions {
 	 * store data on a relay they found. Spaces already registered keep working without it.
 	 */
 	relayKey?: string;
+	/** Contact the push services see for this server (a mailto: or https: URL). */
+	pushSubject?: string;
+	/** Override delivery, for tests. Resolves with the push service's HTTP status. */
+	sendPush?: (
+		subscription: PushSubscriptionJSON,
+		payload: string,
+		keys: VapidKeys,
+	) => Promise<number>;
 }
 
 export class Hub {
@@ -75,11 +101,17 @@ export class Hub {
 	async fetch(request: Request): Promise<Response> {
 		const match = new URL(request.url).pathname.match(ROUTE);
 		if (!match) return error(404, "not found");
-		const [, space = "", sub, machine] = match;
+		const [, space = "", sub, machine, subscription] = match;
+		const method = request.method;
 
-		if (!sub && request.method === "PUT") return this.register(space, request);
-		if (sub === "events" && request.method === "GET") return this.events(space, request);
-		if (machine && request.method === "PUT") return this.publish(space, machine, request);
+		if (!sub && method === "PUT") return this.register(space, request);
+		if (sub === "events" && method === "GET") return this.events(space, request);
+		if (machine && method === "PUT") return this.publish(space, machine, request);
+		if (sub === "push/key" && method === "GET") return this.pushKey(space, request);
+		if (sub === "push/notify" && method === "POST") return this.notify(space, request);
+		if (subscription && (method === "PUT" || method === "DELETE")) {
+			return this.subscription(space, subscription, request);
+		}
 		return error(405, "method not allowed");
 	}
 
@@ -187,6 +219,87 @@ export class Hub {
 				"x-accel-buffering": "no",
 			},
 		});
+	}
+
+	/** Each space gets its own VAPID key pair, created the first time a viewer asks for it. */
+	private async vapid(space: string): Promise<VapidKeys> {
+		const existing = await this.store.get<VapidKeys>(`vapid:${space}`);
+		if (existing) return existing;
+		const keys = await generateVapidKeys();
+		await this.store.put(`vapid:${space}`, keys);
+		return keys;
+	}
+
+	private async pushKey(space: string, request: Request): Promise<Response> {
+		if (!(await this.authorize(space, request, "viewHash"))) return error(401, "unauthorized");
+		return json(200, { publicKey: (await this.vapid(space)).publicKey });
+	}
+
+	private async subscription(space: string, id: string, request: Request): Promise<Response> {
+		if (!(await this.authorize(space, request, "viewHash"))) return error(401, "unauthorized");
+		const key = `sub:${space}:${id}`;
+		if (request.method === "DELETE") {
+			await this.store.delete(key);
+			return json(200, { ok: true });
+		}
+		const body = await readJson<PushSubscriptionJSON>(request);
+		const valid =
+			body &&
+			typeof body.endpoint === "string" &&
+			typeof body.keys?.p256dh === "string" &&
+			typeof body.keys?.auth === "string";
+		if (!valid) return error(400, "invalid subscription");
+		if (!isPushService(body.endpoint)) {
+			return error(400, "this browser's push service isn't supported");
+		}
+		const subs = await this.store.list<StoredSubscription>(`sub:${space}:`);
+		if (!subs.has(key) && subs.size >= MAX_SUBSCRIPTIONS) {
+			// A device that subscribes now is in use; the longest-standing entry is the likeliest to
+			// be one a browser dropped without saying so.
+			const [oldest] =
+				[...subs].sort(([, a], [, b]) => (a.addedAt ?? 0) - (b.addedAt ?? 0))[0] ?? [];
+			if (oldest) await this.store.delete(oldest);
+		}
+		const subscription: StoredSubscription = {
+			endpoint: body.endpoint,
+			keys: body.keys,
+			addedAt: Date.now(),
+		};
+		await this.store.put(key, subscription);
+		return json(200, { ok: true });
+	}
+
+	/** Forward a sealed notification to every subscribed device. */
+	private async notify(space: string, request: Request): Promise<Response> {
+		if (!(await this.authorize(space, request, "publishHash"))) return error(401, "unauthorized");
+		const sealed = await readJson<Sealed>(request);
+		if (!isSealed(sealed)) return error(400, "invalid notification");
+		const payload = JSON.stringify({ sealed });
+		if (payload.length > MAX_NOTIFICATION) return error(413, "notification too large");
+		const subs = await this.store.list<PushSubscriptionJSON>(`sub:${space}:`);
+		if (subs.size === 0) return json(200, { devices: 0, delivered: 0, failures: [] });
+		const keys = await this.vapid(space);
+		const subject = this.options.pushSubject ?? DEFAULT_PUSH_SUBJECT;
+		const deliver = this.options.sendPush ?? ((s, p, k) => sendPush(s, p, k, subject));
+		const results = await Promise.all(
+			[...subs].map(async ([key, sub]) => {
+				// Only the push service's own answer drops a subscription; a network error keeps it.
+				const status = await deliver(
+					{ endpoint: sub.endpoint, keys: sub.keys },
+					payload,
+					keys,
+				).catch(() => 0);
+				if (status === 404 || status === 410) await this.store.delete(key);
+				return status;
+			}),
+		);
+		const failures = results.filter((status) => status < 200 || status >= 300);
+		const result: NotifyResult = {
+			devices: results.length,
+			delivered: results.length - failures.length,
+			failures,
+		};
+		return json(200, result);
 	}
 
 	private broadcast(space: string, event: string, data: unknown): void {

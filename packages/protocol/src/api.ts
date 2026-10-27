@@ -23,6 +23,13 @@ export interface MachineUpdate {
 	receivedAt: number;
 }
 
+/** What happened to one notification: how many devices got it, and the push service's status for each that didn't (0 when unreachable). */
+export interface NotifyResult {
+	devices: number;
+	delivered: number;
+	failures: number[];
+}
+
 export const API = {
 	space: (space: string) => `/api/spaces/${space}`,
 	machine: (space: string, machine: string) => `/api/spaces/${space}/machines/${machine}`,

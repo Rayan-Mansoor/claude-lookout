@@ -1,5 +1,6 @@
 import { BLOCKED_STATES, formatDuration, type SessionView } from "@claude-lookout/protocol";
 import { useEffect, useState } from "preact/hooks";
+import { forgetPush, type PushState, usePush } from "./notifications.ts";
 import { useRoute } from "./router.ts";
 import { SessionCard } from "./session-card.tsx";
 import { urgency } from "./session-format.ts";
@@ -142,8 +143,47 @@ function MachineGroup({
 	);
 }
 
+function NotifyPrompt({ state, enable }: { state: PushState; enable: () => void }) {
+	const message: Partial<Record<PushState, string>> = {
+		off: "Get a notification when a session needs you or finishes.",
+		"install-first":
+			"To get notifications on iPhone or iPad, add Lookout to your Home Screen first: Share, then Add to Home Screen.",
+		blocked: "Notifications are blocked for this site in your browser settings.",
+	};
+	const text = message[state];
+	if (!text) return null;
+	return (
+		<div class="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-4 py-3.5">
+			<p class="min-w-0 flex-1 text-sm text-muted">{text}</p>
+			{state === "off" && (
+				<button
+					type="button"
+					class="shrink-0 rounded-xl bg-ink px-3.5 py-2 text-sm font-medium text-bg transition-opacity hover:opacity-90"
+					onClick={enable}
+				>
+					Turn on
+				</button>
+			)}
+		</div>
+	);
+}
+
+function NotifyFooter({ state, disable }: { state: PushState; disable: () => void }) {
+	if (state !== "on") return null;
+	return (
+		<button
+			type="button"
+			class="text-sm text-muted underline-offset-4 transition-colors hover:text-ink hover:underline"
+			onClick={disable}
+		>
+			Turn off notifications
+		</button>
+	);
+}
+
 function Dashboard({ secret, onForget }: { secret: string; onForget: () => void }) {
 	const { machines, connection, clockOffset } = useSpace(secret);
+	const push = usePush(secret);
 	const now = useNow();
 	const serverNow = now + clockOffset;
 	const route = useRoute();
@@ -216,7 +256,10 @@ function Dashboard({ secret, onForget }: { secret: string; onForget: () => void 
 				)}
 			</div>
 
-			<footer class="mt-12 text-center">
+			<NotifyPrompt state={push.state} enable={() => void push.enable()} />
+
+			<footer class="mt-12 flex flex-wrap justify-center gap-x-6 gap-y-2">
+				<NotifyFooter state={push.state} disable={() => void push.disable()} />
 				<button
 					type="button"
 					class="text-sm text-muted underline-offset-4 transition-colors hover:text-ink hover:underline"
@@ -259,8 +302,10 @@ export function App() {
 		<Dashboard
 			secret={secret}
 			onForget={() => {
+				// Forget the link first, so nothing that follows can leave this device paired.
 				void removeItem(SECRET_KEY);
 				void removeItem(LAST_UPDATES_KEY);
+				void forgetPush(secret);
 				setSecret(null);
 			}}
 		/>

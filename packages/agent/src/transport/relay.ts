@@ -3,6 +3,8 @@ import {
 	deriveSpace,
 	deriveToken,
 	hashToken,
+	type Notice,
+	type NotifyResult,
 	type Snapshot,
 	seal,
 } from "@claude-lookout/protocol";
@@ -61,6 +63,24 @@ export async function relayPublisher(
 				res = await put(snapshot, machineId);
 			}
 			if (!res.ok) throw new Error(`relay refused the update: HTTP ${res.status}`);
+		},
+		async notify(notice: Notice) {
+			if (!registered) await register();
+			const send = async () =>
+				fetch(`${base}${API.space(keys.spaceId)}/push/notify`, {
+					method: "POST",
+					headers: { "content-type": "application/json", authorization: `Bearer ${publishToken}` },
+					body: JSON.stringify(await seal(keys.key, notice)),
+					signal: AbortSignal.timeout(15_000),
+				});
+			let res = await send();
+			if (res.status === 401) {
+				// The relay lost its data (e.g. redeployed with a fresh store): register again.
+				await register();
+				res = await send();
+			}
+			if (!res.ok) throw new Error(`relay refused the notification: HTTP ${res.status}`);
+			return (await res.json()) as NotifyResult;
 		},
 		stop() {},
 	};

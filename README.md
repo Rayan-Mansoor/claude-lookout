@@ -64,6 +64,17 @@ Check what is happening on the machine from its own terminal at any time:
 npx claude-lookout status
 ```
 
+## Notifications
+
+Tap **Turn on** on the dashboard to get a notification when a session needs permission, asks a question, has a plan to approve, or finishes. It waits 10 seconds first, so prompts you answer at the keyboard don't also buzz your phone. On a Mac with the lid closed it sends right away, since nobody is at the keyboard.
+
+Notifications use standard Web Push, so they are free and need no app. Two requirements:
+
+- The dashboard must be on HTTPS (a relay or Tailscale; plain `localhost` works on the same computer).
+- On iPhone and iPad, add Lookout to the Home Screen first (Share, then Add to Home Screen) and turn notifications on from there.
+
+Notification text is end-to-end encrypted like everything else: the relay forwards a sealed message, and your device decrypts it with the view link it already holds.
+
 ## Privacy
 
 - **The view link is the credential.** Its secret sits after the `#` in the URL, which browsers never send to a server. Anyone holding the link can see your sessions; nobody else can.
@@ -107,7 +118,7 @@ Put it behind HTTPS (Caddy, nginx or a Cloudflare Tunnel all work), then run `np
 
 Without a relay, the dashboard is served by claude-lookout itself, on `http://localhost:4777`, while Claude Code runs. That works as-is on the same computer. To open it from your phone, make that address reachable:
 
-- **Tailscale** (private to your devices): run `tailscale serve --bg 4777`, then `npx claude-lookout setup --url https://<your-machine>.<your-tailnet>.ts.net`. Tailscale provides HTTPS, which phones need to install the dashboard as an app.
+- **Tailscale** (private to your devices): run `tailscale serve --bg 4777`, then `npx claude-lookout setup --url https://<your-machine>.<your-tailnet>.ts.net`. Tailscale provides HTTPS, which phones need for notifications and to install the dashboard as an app.
 - **Your local network**: `npx claude-lookout setup --host 0.0.0.0 --url http://<your-machine>.local:4777`. Only use this on networks you trust.
 
 When Claude Code isn't running, claude-lookout isn't either, so this dashboard is offline too.
