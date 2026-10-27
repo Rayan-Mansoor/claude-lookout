@@ -93,6 +93,16 @@ Setup then prints a view link on your relay, plus a `setup --join …` command. 
 
 Free-plan limits are far above what one person needs: each computer sends a small update when something changes and a heartbeat every 30 seconds, and the dashboard only holds a connection open while it is on screen.
 
+### A relay on your own server
+
+Any always-on machine with Node.js can run the same relay:
+
+```sh
+npx claude-lookout relay --port 8787
+```
+
+Put it behind HTTPS (Caddy, nginx or a Cloudflare Tunnel all work), then run `npx claude-lookout setup --relay https://<your-server>` on each computer. The relay stores only encrypted data, in `~/.claude-lookout/relay.json` by default (`--data` to change it).
+
 ### Directly from your computer
 
 Without a relay, the dashboard is served by claude-lookout itself, on `http://localhost:4777`, while Claude Code runs. That works as-is on the same computer. To open it from your phone, make that address reachable:

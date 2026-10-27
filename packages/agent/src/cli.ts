@@ -6,6 +6,7 @@ import { runDaemon } from "./daemon.ts";
 import { paths } from "./home.ts";
 import { runHook } from "./hook.ts";
 import { fetchSnapshot } from "./ipc.ts";
+import { DEFAULT_RELAY_DATA, runRelayServer } from "./relay-server.ts";
 import { printViewLink, runSetup, runUninstall } from "./setup.ts";
 import { renderStatus } from "./status.ts";
 
@@ -16,6 +17,7 @@ Usage:
   claude-lookout status      Show the sessions open on this machine
   claude-lookout link        Show the view link and QR code again
   claude-lookout uninstall   Disconnect claude-lookout from Claude Code
+  claude-lookout relay       Run your own relay on this server
 
 Setup options:
   --yes                      Apply settings changes without asking
@@ -25,6 +27,11 @@ Setup options:
   --host <address>           Where the dashboard listens (default 127.0.0.1)
   --port <number>            Dashboard port (default 4777)
   --url <address>            The address other devices use to reach the dashboard
+
+Relay options:
+  --host <address>           Where the relay listens (default 0.0.0.0)
+  --port <number>            Relay port (default 8787)
+  --data <file>              Where it stores encrypted data (default ~/.claude-lookout/relay.json)
 
 Used by Claude Code:
   claude-lookout hook        Read a hook event on stdin and pass it to the agent
@@ -41,6 +48,7 @@ const { positionals, values } = parseArgs({
 		relay: { type: "string" },
 		"relay-key": { type: "string" },
 		join: { type: "string" },
+		data: { type: "string" },
 	},
 });
 const [command] = positionals;
@@ -86,6 +94,13 @@ switch (command) {
 		break;
 	case "status":
 		console.log(renderStatus(await fetchSnapshot()));
+		break;
+	case "relay":
+		runRelayServer({
+			host: option("host") ?? "0.0.0.0",
+			port: Number(option("port") ?? 8787),
+			dataFile: option("data") ?? DEFAULT_RELAY_DATA(),
+		});
 		break;
 	case "link":
 		if (!existsSync(paths.config())) {
