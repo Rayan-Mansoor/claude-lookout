@@ -5,15 +5,21 @@
 	"license": "MIT",
 	"type": "module",
 	"bin": {
-		"claude-lookout": "./src/cli.ts"
+		"claude-lookout": "./dist/claude-lookout.js"
 	},
 	"engines": {
 		"node": ">=22.18"
 	},
 	"scripts": {
-		"typecheck": "tsc -p tsconfig.json"
+		"build": "vite build",
+		"typecheck": "tsc -p tsconfig.json",
+		"prepublishOnly": "npm run build"
 	},
-	"dependencies": {
-		"@claude-lookout/protocol": "*"
-	}
+	"devDependencies": {
+		"@claude-lookout/protocol": "*",
+		"vite": "^8.3.5"
+	},
+	"files": [
+		"dist"
+	]
 }

@@ -1,4 +1,12 @@
-import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { createServer, type Server } from "node:net";
 import type { Session } from "@claude-lookout/protocol";
 import { Agent } from "./agent.ts";
@@ -68,6 +76,10 @@ function serve(agent: Agent): Server {
 
 /** Read the config, or say why the agent can't run. */
 function readConfig(): Config | undefined {
+	if (!existsSync(paths.config())) {
+		log("not set up yet; run `npx claude-lookout setup`");
+		return undefined;
+	}
 	try {
 		return loadConfig();
 	} catch (err) {

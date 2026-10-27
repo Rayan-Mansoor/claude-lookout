@@ -42,6 +42,30 @@ Alongside the state, each session carries fields grouped into levels. You choose
 
 Content fields pass through a secret filter first: API keys, tokens, passwords, private keys and credentials in URLs are masked as `••••`.
 
+## Setup
+
+Run this once on each machine that runs Claude Code (Node.js 22.18 or newer):
+
+```sh
+npx claude-lookout setup
+```
+
+Setup shows the exact change it will make to `~/.claude/settings.json`, backs the file up, and adds claude-lookout's hooks. That is the whole installation: nothing runs in the background and nothing starts at login. The next time Claude Code starts a session, its hooks wake claude-lookout, and it goes back to sleep a few minutes after your last session closes.
+
+Check what is happening on the machine at any time:
+
+```sh
+npx claude-lookout status
+```
+
+## Uninstall
+
+```sh
+npx claude-lookout uninstall
+```
+
+This removes claude-lookout's hooks from Claude Code's settings (again showing the change and keeping a backup). Delete `~/.claude-lookout` to remove its config as well.
+
 ## Disclaimer
 
 claude-lookout is an independent open-source project. It is not affiliated with, endorsed by or supported by Anthropic. "Claude" and "Claude Code" are trademarks of Anthropic.

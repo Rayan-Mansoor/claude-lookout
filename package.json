@@ -9,6 +9,7 @@
 		"node": ">=22.18"
 	},
 	"scripts": {
+		"build": "npm run build --workspaces --if-present",
 		"typecheck": "tsc -p tsconfig.json && npm run typecheck --workspaces --if-present",
 		"lint": "biome check .",
 		"format": "biome check --write .",
