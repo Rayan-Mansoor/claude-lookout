@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+/*
+ * The palette. Every colour in the app comes from these tokens; light and dark share names.
+ * Warm paper and ink, with an amber lamp for anything that needs you.
+ */
+:root {
+	--bg: #f5f3ee;
+	--surface: #ffffff;
+	--surface-2: #efece5;
+	--ink: #1d1b17;
+	--muted: #6d685f;
+	--line: #e2ded4;
+	--lamp: #c7780a;
+	--lamp-soft: #fbefd9;
+	--working: #2f64c9;
+	--working-soft: #e3ebfa;
+	--done: #2b7a4b;
+	--done-soft: #e1f1e7;
+	--halt: #b0472e;
+	--halt-soft: #f8e5df;
+	--idle: #7a756b;
+	--idle-soft: #ebe8e1;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #151412;
+		--surface: #1e1d1a;
+		--surface-2: #282622;
+		--ink: #ece9e2;
+		--muted: #9d978b;
+		--line: #312e29;
+		--lamp: #e8a33d;
+		--lamp-soft: #3a2c15;
+		--working: #7aa5f0;
+		--working-soft: #1d2a42;
+		--done: #6cc490;
+		--done-soft: #18301f;
+		--halt: #ec8a70;
+		--halt-soft: #3a211a;
+		--idle: #a29c90;
+		--idle-soft: #2a2824;
+	}
+}
+
+@theme inline {
+	--color-bg: var(--bg);
+	--color-surface: var(--surface);
+	--color-surface-2: var(--surface-2);
+	--color-ink: var(--ink);
+	--color-muted: var(--muted);
+	--color-line: var(--line);
+	--color-lamp: var(--lamp);
+	--color-lamp-soft: var(--lamp-soft);
+	--color-working: var(--working);
+	--color-working-soft: var(--working-soft);
+	--color-done: var(--done);
+	--color-done-soft: var(--done-soft);
+	--color-halt: var(--halt);
+	--color-halt-soft: var(--halt-soft);
+	--color-idle: var(--idle);
+	--color-idle-soft: var(--idle-soft);
+	--font-sans: ui-sans-serif, -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+	--font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+}
+
+html,
+body {
+	background: var(--bg);
+	color: var(--ink);
+}
+
+body {
+	font-family: var(--font-sans);
+	-webkit-font-smoothing: antialiased;
+	-webkit-tap-highlight-color: transparent;
+}
+
+@keyframes pulse-dot {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.35;
+	}
+}
+
+.pulse {
+	animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.pulse {
+		animation: none;
+	}
+}

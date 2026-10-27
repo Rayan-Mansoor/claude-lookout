@@ -11,7 +11,7 @@ import { renderStatus } from "./status.ts";
 function makeAgent(level: 1 | 2 = 2) {
 	let now = 1_000_000;
 	const agent = new Agent(
-		{ machine: { id: "m1", name: "Studio" }, level },
+		{ ...defaultConfig(), machine: { id: "m1", name: "Studio" }, level },
 		{ gitBranch: () => "main" },
 		() => now,
 	);
@@ -115,7 +115,7 @@ describe("Claude Code process", () => {
 		const answers: (number | undefined)[] = [undefined, 4242];
 		let lookups = 0;
 		const agent = new Agent(
-			{ machine: { id: "m1", name: "Studio" }, level: 2 },
+			{ ...defaultConfig(), machine: { id: "m1", name: "Studio" }, level: 2 },
 			{ gitBranch: () => "main" },
 			() => 1,
 			() => {

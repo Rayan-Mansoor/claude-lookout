@@ -9,7 +9,7 @@
 		"node": ">=22.18"
 	},
 	"scripts": {
-		"build": "npm run build --workspaces --if-present",
+		"build": "npm run build -w @claude-lookout/web && npm run build -w claude-lookout",
 		"typecheck": "tsc -p tsconfig.json && npm run typecheck --workspaces --if-present",
 		"lint": "biome check .",
 		"format": "biome check --write .",

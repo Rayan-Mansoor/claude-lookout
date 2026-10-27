@@ -14,6 +14,7 @@ export const paths = {
 	lock: () => join(lookoutHome(), "agent.lock"),
 	log: () => join(lookoutHome(), "agent.log"),
 	sessions: () => join(lookoutHome(), "sessions.json"),
+	hub: () => join(lookoutHome(), "hub.json"),
 };
 
 /**

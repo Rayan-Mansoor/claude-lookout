@@ -12,12 +12,11 @@ async function readStdin(): Promise<string> {
 	return data;
 }
 
-/** Start the agent in the background, detached from this short-lived hook process. */
-export function startAgent(): void {
+/** Start the agent in the background, detached from the short-lived process that asked. */
+export function startAgent(script = process.argv[1]): void {
+	if (!script) return;
 	mkdirSync(lookoutHome(), { recursive: true, mode: 0o700 });
 	const log = openSync(paths.log(), "a");
-	const script = process.argv[1];
-	if (!script) return;
 	spawn(process.execPath, [...process.execArgv, script, "agent"], {
 		detached: true,
 		stdio: ["ignore", log, log],

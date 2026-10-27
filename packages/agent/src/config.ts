@@ -1,19 +1,50 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { DEFAULT_LEVEL, type Level, type Machine } from "@claude-lookout/protocol";
+import { DEFAULT_LEVEL, type Level, type Machine, randomSecret } from "@claude-lookout/protocol";
 import { paths } from "./home.ts";
+
+/** The secrets of the space this machine reports to. Never leave the machine as-is. */
+export interface SpaceSecrets {
+	/** Lets anyone holding it see the dashboard; it is the view link. */
+	view: string;
+	/** Lets machines publish into the space. */
+	publish: string;
+	/** Reserved for acting on sessions from the dashboard. */
+	control: string;
+}
+
+/** Serve the dashboard from this machine while Claude Code runs. */
+export interface DirectTransport {
+	mode: "direct";
+	host: string;
+	port: number;
+	/** The address viewers use, when it differs from host:port (e.g. a Tailscale name). */
+	publicUrl?: string;
+}
+
+export type Transport = DirectTransport;
 
 export interface Config {
 	machine: Machine;
 	/** Highest field level that leaves this machine. */
 	level: Level;
+	space: SpaceSecrets;
+	transport: Transport;
+}
+
+export const DEFAULT_PORT = 4777;
+
+export function newSpace(): SpaceSecrets {
+	return { view: randomSecret(), publish: randomSecret(), control: randomSecret() };
 }
 
 export function defaultConfig(): Config {
 	return {
 		machine: { id: randomUUID(), name: hostname().replace(/\.local$/, "") },
 		level: DEFAULT_LEVEL,
+		space: newSpace(),
+		transport: { mode: "direct", host: "127.0.0.1", port: DEFAULT_PORT },
 	};
 }
 
@@ -39,4 +70,16 @@ export function loadConfig(path = paths.config()): Config {
 		throw new Error(`${path} is damaged. Fix it, or move it away to start over with a new one.`);
 	}
 	return { ...defaultConfig(), ...saved };
+}
+
+/** Where a viewer opens the dashboard; the secret rides in the #fragment, never sent to a server. */
+export function viewLink(config: Config): string {
+	return `${dashboardUrl(config.transport)}/#k=${config.space.view}`;
+}
+
+export function dashboardUrl(transport: Transport): string {
+	if (transport.publicUrl) return transport.publicUrl.replace(/\/+$/, "");
+	const host =
+		transport.host === "127.0.0.1" || transport.host === "0.0.0.0" ? "localhost" : transport.host;
+	return `http://${host}:${transport.port}`;
 }

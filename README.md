@@ -52,11 +52,34 @@ npx claude-lookout setup
 
 Setup shows the exact change it will make to `~/.claude/settings.json`, backs the file up, and adds claude-lookout's hooks. That is the whole installation: nothing runs in the background and nothing starts at login. The next time Claude Code starts a session, its hooks wake claude-lookout, and it goes back to sleep a few minutes after your last session closes.
 
-Check what is happening on the machine at any time:
+Setup finishes by printing your **view link** and a QR code. Open the link (or scan the code) on your phone once; the dashboard remembers it from then on. Add it to your home screen to use it like an app. To show the link again for another device:
+
+```sh
+npx claude-lookout link
+```
+
+Check what is happening on the machine from its own terminal at any time:
 
 ```sh
 npx claude-lookout status
 ```
+
+## Privacy
+
+- **The view link is the credential.** Its secret sits after the `#` in the URL, which browsers never send to a server. Anyone holding the link can see your sessions; nobody else can.
+- **Everything is end-to-end encrypted.** Each snapshot is sealed with AES-256-GCM using a key derived from the view secret before it leaves your machine. The server that passes it on stores only ciphertext, the space's random id, and hashes of the access tokens.
+- **Viewers can't write.** Machines publish with a separate secret that never appears in the view link, so a viewer can't fake a session.
+- **You choose how much leaves.** Set `"level"` in `~/.claude-lookout/config.json` to `1` to share context only (no prompts, questions or messages).
+- **Secrets are masked first.** See [What you see](#what-you-see).
+
+## Hosting
+
+By default the dashboard is served by claude-lookout itself, on `http://localhost:4777`, while Claude Code runs. That works as-is on the same computer. To open it from your phone, make that address reachable:
+
+- **Tailscale** (private to your devices): run `tailscale serve --bg 4777`, then `npx claude-lookout setup --url https://<your-machine>.<your-tailnet>.ts.net`. Tailscale provides HTTPS, which phones need to install the dashboard as an app.
+- **Your local network**: `npx claude-lookout setup --host 0.0.0.0 --url http://<your-machine>.local:4777`. Only use this on networks you trust.
+
+When Claude Code isn't running, claude-lookout isn't either, so this dashboard is offline too.
 
 ## Uninstall
 
@@ -64,7 +87,7 @@ npx claude-lookout status
 npx claude-lookout uninstall
 ```
 
-This removes claude-lookout's hooks from Claude Code's settings (again showing the change and keeping a backup). Delete `~/.claude-lookout` to remove its config as well.
+This removes claude-lookout's hooks from Claude Code's settings (again showing the change and keeping a backup). Delete `~/.claude-lookout` to remove its config and view link as well.
 
 ## Disclaimer
 

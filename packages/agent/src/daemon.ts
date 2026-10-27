@@ -15,6 +15,8 @@ import { gitBranch } from "./git.ts";
 import { lookoutHome, paths } from "./home.ts";
 import type { Request } from "./ipc.ts";
 import { acquireLock, releaseLock } from "./lock.ts";
+import { directPublisher } from "./transport/direct.ts";
+import { throttled } from "./transport/publisher.ts";
 import { checkSessions, findClaudePid } from "./watch.ts";
 
 /** How long the agent lingers once every Claude Code session has closed. */
@@ -92,7 +94,7 @@ function readConfig(): Config | undefined {
 }
 
 /** Run the agent until every Claude Code session has been closed for a while. */
-export function runDaemon(): void {
+export async function runDaemon(): Promise<void> {
 	mkdirSync(lookoutHome(), { recursive: true, mode: 0o700 });
 	if (!acquireLock(paths.lock())) return;
 
@@ -104,7 +106,7 @@ export function runDaemon(): void {
 	};
 	process.on("SIGTERM", () => shutdown("SIGTERM"));
 	process.on("SIGINT", () => shutdown("SIGINT"));
-	// A bug in one part must not take the agent down, nor leave a lock and socket behind.
+	// A bug in one part must not take the dashboard down, nor leave a lock and socket behind.
 	process.on("uncaughtException", (err) => log(`unexpected error: ${err.stack ?? err.message}`));
 	process.on("unhandledRejection", (err) =>
 		log(`unexpected error: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`),
@@ -117,6 +119,11 @@ export function runDaemon(): void {
 	}
 	const agent = new Agent(config, { gitBranch }, Date.now, findClaudePid);
 	loadSessions(agent);
+
+	const publisher = await directPublisher(config.transport, config.space, log);
+	const publish = throttled(publisher, 250, (err) => log(`publish failed: ${err.message}`));
+	agent.onChange((snapshot) => publish(snapshot, config.machine.id));
+	publish(agent.snapshot(), config.machine.id);
 
 	const saveSessions = () =>
 		saveFile(paths.sessions(), JSON.stringify([...agent.sessions.values()]));
@@ -136,6 +143,7 @@ export function runDaemon(): void {
 		clearTimeout(saveTimer);
 		saveSessions();
 		server.close();
+		publisher.stop();
 		quietUnlink(paths.socket());
 		releaseLock(paths.lock());
 		process.exit(0);

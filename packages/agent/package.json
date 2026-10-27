@@ -11,12 +11,14 @@
 		"node": ">=22.18"
 	},
 	"scripts": {
-		"build": "vite build",
+		"build": "vite build && node -e \"require('fs').cpSync('../web/dist', 'dist/web', { recursive: true })\"",
 		"typecheck": "tsc -p tsconfig.json",
 		"prepublishOnly": "npm run build"
 	},
 	"devDependencies": {
 		"@claude-lookout/protocol": "*",
+		"@claude-lookout/relay": "*",
+		"qrcode": "^1.5.4",
 		"vite": "^8.3.5"
 	},
 	"files": [
