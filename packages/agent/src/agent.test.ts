@@ -109,3 +109,30 @@ describe("agent socket", () => {
 		}
 	});
 });
+
+describe("Claude Code process", () => {
+	it("tries a failed lookup again on the next event, and keeps one that worked", () => {
+		const answers: (number | undefined)[] = [undefined, 4242];
+		let lookups = 0;
+		const agent = new Agent(
+			{ machine: { id: "m1", name: "Studio" }, level: 2 },
+			{ gitBranch: () => "main" },
+			() => 1,
+			() => {
+				lookups++;
+				return answers.shift();
+			},
+		);
+		const event = (name: string) => ({
+			input: { session_id: "s1", hook_event_name: name } as HookInput,
+			at: 1,
+			pid: 77,
+		});
+		agent.handle(event("SessionStart"));
+		expect(agent.sessions.get("s1")?.pid).toBeUndefined();
+		agent.handle(event("UserPromptSubmit"));
+		agent.handle(event("Stop"));
+		expect(agent.sessions.get("s1")?.pid).toBe(4242);
+		expect(lookups).toBe(2);
+	});
+});

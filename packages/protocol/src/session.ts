@@ -31,6 +31,8 @@ export interface Session {
 	updatedAt: number;
 	/** PID of the Claude Code process, when known. */
 	pid?: number;
+	/** The conversation transcript Claude Code writes; read locally, never sent. */
+	transcript?: string;
 	/** Requests waiting on you, oldest first; never sent. */
 	blocks?: Block[];
 	fields: Record<string, unknown>;
@@ -190,6 +192,7 @@ export function reduce(prev: Session | undefined, event: HookEvent, ctx: FieldCo
 		session.since = at;
 	}
 	if (event.pid !== undefined) session.pid = event.pid;
+	if (typeof input.transcript_path === "string") session.transcript = input.transcript_path;
 	session.updatedAt = at;
 	applyFields(session.fields, input, ctx);
 	return session;

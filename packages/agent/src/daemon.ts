@@ -15,10 +15,13 @@ import { gitBranch } from "./git.ts";
 import { lookoutHome, paths } from "./home.ts";
 import type { Request } from "./ipc.ts";
 import { acquireLock, releaseLock } from "./lock.ts";
+import { checkSessions, findClaudePid } from "./watch.ts";
 
 /** How long the agent lingers once every Claude Code session has closed. */
 const IDLE_MS = Number(process.env.CLAUDE_LOOKOUT_IDLE_MS ?? 5 * 60_000);
 const TICK_MS = Math.min(30_000, IDLE_MS);
+/** How often open sessions are checked for interrupts and closed terminals. */
+const WATCH_MS = 2000;
 
 export function log(message: string): void {
 	console.log(`${new Date().toISOString()} ${message}`);
@@ -112,7 +115,7 @@ export function runDaemon(): void {
 		shutdown("no usable config");
 		return;
 	}
-	const agent = new Agent(config, { gitBranch });
+	const agent = new Agent(config, { gitBranch }, Date.now, findClaudePid);
 	loadSessions(agent);
 
 	const saveSessions = () =>
@@ -149,4 +152,8 @@ export function runDaemon(): void {
 		agent.prune();
 		if (agent.idle() && Date.now() - agent.lastEventAt > IDLE_MS) void shutdown("no open sessions");
 	}, TICK_MS);
+
+	setInterval(() => {
+		for (const session of checkSessions(agent.sessions.values(), Date.now())) agent.update(session);
+	}, WATCH_MS);
 }

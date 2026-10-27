@@ -18,18 +18,29 @@ export class Agent {
 	lastEventAt: number;
 	private readonly ctx: FieldContext;
 	private readonly now: () => number;
+	private readonly resolvePid: (pid: number) => number | undefined;
+	private readonly pids = new Map<number, number>();
 	private readonly listeners = new Set<(snapshot: Snapshot) => void>();
 
-	constructor(config: Config, ctx: FieldContext, now: () => number = Date.now) {
+	constructor(
+		config: Config,
+		ctx: FieldContext,
+		now: () => number = Date.now,
+		resolvePid: (pid: number) => number | undefined = (pid) => pid,
+	) {
 		this.config = config;
 		this.ctx = ctx;
 		this.now = now;
+		this.resolvePid = resolvePid;
 		this.lastEventAt = now();
 	}
 
 	handle(event: HookEvent): void {
 		const id = event.input.session_id;
-		this.sessions.set(id, reduce(this.sessions.get(id), event, this.ctx));
+		const pid = event.pid === undefined ? undefined : this.claudePid(event.pid);
+		const { pid: _, ...rest } = event;
+		const resolved: HookEvent = pid === undefined ? rest : { ...rest, pid };
+		this.sessions.set(id, reduce(this.sessions.get(id), resolved, this.ctx));
 		this.lastEventAt = this.now();
 		this.changed();
 	}
@@ -38,6 +49,15 @@ export class Agent {
 	update(session: Session): void {
 		this.sessions.set(session.id, session);
 		this.changed();
+	}
+
+	/** Found pids are kept; a lookup that failed is tried again on the next event. */
+	private claudePid(hookParent: number): number | undefined {
+		const known = this.pids.get(hookParent);
+		if (known !== undefined) return known;
+		const found = this.resolvePid(hookParent);
+		if (found !== undefined) this.pids.set(hookParent, found);
+		return found;
 	}
 
 	/** Drop sessions that closed long ago. */
