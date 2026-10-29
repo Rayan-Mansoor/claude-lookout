@@ -88,8 +88,14 @@ export function describeActivity(call: ToolCall): string {
 	return call.target ? `${call.tool} · ${call.target}` : call.tool;
 }
 
+/** The conversation's name, or the project when it has none yet. */
 export function sessionTitle(session: SessionView): string {
-	return text(session.fields.project) ?? "Claude Code";
+	return text(session.fields.title) ?? text(session.fields.project) ?? "Claude Code";
+}
+
+/** The project, when the title doesn't already say it. */
+export function sessionProject(session: SessionView): string | undefined {
+	return text(session.fields.title) ? text(session.fields.project) : undefined;
 }
 
 /** "14:02" today, "Mon 14:02" before that. */

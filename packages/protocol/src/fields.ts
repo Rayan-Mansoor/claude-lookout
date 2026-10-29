@@ -373,6 +373,13 @@ const narration: FieldDef<string> = {
 	extract: (input) => (RUN_START.has(input.hook_event_name) ? null : undefined),
 };
 
+/** The conversation's name: the one you gave it with /rename, or the one Claude Code wrote. */
+const title: FieldDef<string> = {
+	key: "title",
+	label: "Conversation",
+	level: 2,
+};
+
 const edited: FieldDef<string[]> = {
 	key: "edited",
 	label: "Edited by this session",
@@ -517,6 +524,7 @@ const error: FieldDef<string> = {
 
 /** Every field claude-lookout knows about, in display order. Add new fields here. */
 export const FIELDS: readonly FieldDef[] = [
+	title,
 	project,
 	cwd,
 	branch,

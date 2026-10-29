@@ -80,3 +80,16 @@ describe("TranscriptReader", () => {
 		expect(reader.read(file)?.narration).toBe("Second, with ünïcödé");
 	});
 });
+
+describe("conversation title", () => {
+	const aiTitle = (t: string) => JSON.stringify({ type: "ai-title", aiTitle: t });
+	const customTitle = (t: string) => JSON.stringify({ type: "custom-title", customTitle: t });
+
+	it("uses Claude Code's latest name until you give one with /rename", () => {
+		const reader = new TranscriptReader();
+		const first = scanTranscript([aiTitle("Fix login"), aiTitle("Fix login redirect")]);
+		expect(reader.title("t.jsonl", first)).toBe("Fix login redirect");
+		expect(reader.title("t.jsonl", scanTranscript([customTitle("Auth work")]))).toBe("Auth work");
+		expect(reader.title("t.jsonl", scanTranscript([aiTitle("Something else")]))).toBe("Auth work");
+	});
+});

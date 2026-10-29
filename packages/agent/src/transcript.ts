@@ -4,9 +4,14 @@ import type { Agent } from "./agent.ts";
 
 /** How much of a transcript is read the first time; they can grow past 100 MB. */
 const FIRST_READ_BYTES = 2 * 1024 * 1024;
+const TITLE_MAX = 120;
 
 /** What a transcript says that hooks don't. */
 export interface TranscriptNews {
+	/** A name you gave the conversation with /rename. */
+	customTitle?: string;
+	/** The name Claude Code gave the conversation. */
+	aiTitle?: string;
 	/** Claude's newest text while working; `null` once you have sent a new prompt. */
 	narration?: string | null;
 }
@@ -38,12 +43,23 @@ export function scanTranscript(lines: string[]): TranscriptNews {
 	const news: TranscriptNews = {};
 	for (const line of lines) {
 		// Most lines are tool results and request logs; skip them without parsing.
-		if (!line.includes('"type":"assistant"') && !line.includes('"type":"user"')) continue;
+		if (
+			!line.includes('"type":"assistant"') &&
+			!line.includes('"type":"user"') &&
+			!line.includes('-title"')
+		) {
+			continue;
+		}
 		let entry: Record<string, unknown>;
 		try {
 			entry = JSON.parse(line);
 		} catch {
 			continue;
+		}
+		if (entry.type === "custom-title" && typeof entry.customTitle === "string") {
+			news.customTitle = entry.customTitle;
+		} else if (entry.type === "ai-title" && typeof entry.aiTitle === "string") {
+			news.aiTitle = entry.aiTitle;
 		}
 		if (entry.isSidechain === true || entry.isMeta === true) continue;
 		if (entry.type === "assistant") {
@@ -60,6 +76,14 @@ export function scanTranscript(lines: string[]): TranscriptNews {
 export class TranscriptReader {
 	/** Where the next unread line starts, per transcript. */
 	private readonly offsets = new Map<string, number>();
+	/** A name you gave a conversation outranks every later one Claude Code writes. */
+	private readonly customTitles = new Map<string, string>();
+
+	/** The conversation's name as of the last read. */
+	title(path: string, news: TranscriptNews): string | undefined {
+		if (news.customTitle) this.customTitles.set(path, news.customTitle);
+		return this.customTitles.get(path) ?? news.aiTitle;
+	}
 
 	read(path: string): TranscriptNews | undefined {
 		let fd: number | undefined;
@@ -85,6 +109,7 @@ export class TranscriptReader {
 
 	forget(path: string): void {
 		this.offsets.delete(path);
+		this.customTitles.delete(path);
 	}
 }
 
@@ -97,9 +122,13 @@ export function followTranscripts(agent: Agent, reader: TranscriptReader): void 
 			continue;
 		}
 		const news = reader.read(session.transcript);
-		if (news?.narration === undefined) continue;
-		agent.setFields(session.id, {
-			narration: news.narration === null ? null : sanitize(news.narration, TEXT_MAX),
-		});
+		if (!news) continue;
+		const fields: Record<string, unknown> = {};
+		if (news.narration !== undefined) {
+			fields.narration = news.narration === null ? null : sanitize(news.narration, TEXT_MAX);
+		}
+		const title = reader.title(session.transcript, news);
+		if (title) fields.title = sanitize(title, TITLE_MAX);
+		agent.setFields(session.id, fields);
 	}
 }

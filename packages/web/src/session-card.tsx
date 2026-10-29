@@ -2,6 +2,7 @@ import { formatDuration, type SessionView, type TaskProgress } from "@claude-loo
 import { navigate, sessionPath } from "./router.ts";
 import {
 	progressLine,
+	sessionProject,
 	sessionTitle,
 	stateLabel,
 	stateTone,
@@ -23,6 +24,7 @@ export function SessionCard({
 	const tasks = session.fields.tasks as TaskProgress | undefined;
 	const line = [
 		formatDuration(now - session.since),
+		sessionProject(session),
 		text(session.fields.branch),
 		summarize(session, now),
 	]
@@ -42,7 +44,9 @@ export function SessionCard({
 		>
 			<div class="flex items-center gap-3">
 				<span class={`size-2.5 shrink-0 rounded-full ${tone.dot}`} aria-hidden="true" />
-				<span class="min-w-0 flex-1 truncate font-medium">{sessionTitle(session)}</span>
+				<span class="line-clamp-2 min-w-0 flex-1 break-words font-medium">
+					{sessionTitle(session)}
+				</span>
 				<span class={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${tone.badge}`}>
 					{stateLabel(session)}
 				</span>

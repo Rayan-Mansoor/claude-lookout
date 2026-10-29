@@ -27,6 +27,7 @@ import {
 	plural,
 	runningStep,
 	START_LABELS,
+	sessionProject,
 	sessionTitle,
 	stateLabel,
 	stateTone,
@@ -426,8 +427,12 @@ export function SessionScreen({
 			<header class="flex items-center gap-2">
 				<BackButton />
 				<div class="min-w-0">
-					<h1 class="truncate text-lg font-semibold tracking-tight">{sessionTitle(session)}</h1>
-					<p class="truncate text-sm text-muted">{machine.snapshot.machine.name}</p>
+					<h1 class="text-lg font-semibold leading-snug tracking-tight break-words">
+						{sessionTitle(session)}
+					</h1>
+					<p class="truncate text-sm text-muted">
+						{[sessionProject(session), machine.snapshot.machine.name].filter(Boolean).join(" · ")}
+					</p>
 				</div>
 			</header>
 
