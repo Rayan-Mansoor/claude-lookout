@@ -2,6 +2,7 @@ import {
 	formatDuration,
 	type GitEvent,
 	type GitSummary,
+	type PermissionRequest,
 	plainLine,
 	type Question,
 	type SessionState,
@@ -247,6 +248,10 @@ export function summarize(session: SessionView, now: number): string | undefined
 			return "Plan ready for review";
 		case "finished":
 			return text(f.error) ?? plainLine(text(f.lastMessage));
+		case "permission": {
+			const request = f.permission as PermissionRequest | undefined;
+			return request ? describeActivity(request) : activity && describeActivity(activity);
+		}
 		case "working": {
 			const step = runningStep(session);
 			if (step && now - step.at >= LONG_STEP_MS) return describeStep(step, now);
@@ -254,8 +259,6 @@ export function summarize(session: SessionView, now: number): string | undefined
 				plainLine(text(f.narration)) ?? (activity ? describeActivity(activity) : tasks?.current)
 			);
 		}
-		case "permission":
-			return activity ? describeActivity(activity) : tasks?.current;
 		default:
 			return undefined;
 	}

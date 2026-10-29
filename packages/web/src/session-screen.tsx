@@ -11,11 +11,14 @@ import {
 	type Step,
 	type Subagent,
 	type TaskProgress,
+	type TextEdit,
 	type ToolCall,
 	type WorkingChanges,
 } from "@claude-lookout/protocol";
 import type { ComponentChildren } from "preact";
-import { InlineMarkdown, Markdown } from "./markdown.tsx";
+import { useMemo } from "preact/hooks";
+import { lineDiff } from "./line-diff.ts";
+import { CodeBlock, InlineMarkdown, Markdown } from "./markdown.tsx";
 import { back } from "./router.ts";
 import {
 	busyLine,
@@ -85,6 +88,49 @@ function BackButton() {
 	);
 }
 
+/** "ts" for "src/app.ts", so a file's content can be labelled with its kind. */
+function fileType(path: string | undefined): string | undefined {
+	const name = path?.split("/").at(-1) ?? "";
+	return name.includes(".") ? name.split(".").at(-1) : name || undefined;
+}
+
+const DIFF_STYLES = {
+	same: { line: "", mark: " ", label: "Unchanged" },
+	removed: { line: "bg-halt-soft", mark: "−", label: "Removed" },
+	added: { line: "bg-done-soft", mark: "+", label: "Added" },
+};
+
+function diffRows(edit: TextEdit) {
+	return lineDiff(edit.before, edit.after).map((line, i) => {
+		const style = DIFF_STYLES[line.kind];
+		return (
+			<div key={i} class={`flex ${style.line}`}>
+				<span class="w-6 shrink-0 select-none text-center text-muted" aria-hidden="true">
+					{style.mark}
+				</span>
+				<span class="sr-only">{style.label}: </span>
+				<span class="min-w-0 flex-1 whitespace-pre-wrap break-all pr-3">{line.text || " "}</span>
+			</div>
+		);
+	});
+}
+
+/**
+ * One replacement Claude wants to make, as lines removed and added. Worked out once per edit: the
+ * screen redraws every second, and an edit can run to thousands of lines.
+ */
+function EditDiff({ edit, label }: { edit: TextEdit; label?: string | undefined }) {
+	const rows = useMemo(() => diffRows(edit), [edit.before, edit.after]);
+	return (
+		<figure class="overflow-hidden rounded-lg border border-line bg-surface">
+			{label && (
+				<figcaption class="border-b border-line px-3 py-1 text-xs text-muted">{label}</figcaption>
+			)}
+			<div class="py-1 font-mono text-[13px] leading-relaxed">{rows}</div>
+		</figure>
+	);
+}
+
 /** An option as sent by any agent version: older ones sent only its label. */
 function asOption(option: QuestionOption | string): QuestionOption {
 	return typeof option === "string" ? { label: option } : option;
@@ -121,9 +167,20 @@ function NeedsYou({ session }: { session: SessionView }) {
 						<span class="font-medium">{permission.tool}</span>
 						{permission.target && <span class="text-muted"> · {permission.target}</span>}
 					</p>
-					{permission.detail && permission.detail !== permission.target && (
-						<Block mono>{permission.detail}</Block>
-					)}
+					{permission.detail &&
+						permission.detail !== permission.target &&
+						(permission.tool === "Write" ? (
+							<CodeBlock code={permission.detail} lang={fileType(permission.target)} />
+						) : (
+							<Block mono>{permission.detail}</Block>
+						))}
+					{permission.edits?.map((edit, i, all) => (
+						<EditDiff
+							key={i}
+							edit={edit}
+							label={all.length > 1 ? `Change ${i + 1} of ${all.length}` : undefined}
+						/>
+					))}
 					{permission.suggestions.length > 0 && (
 						<p class="text-sm text-muted">
 							Can be allowed from now on with{" "}

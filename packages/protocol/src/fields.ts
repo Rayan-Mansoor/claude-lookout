@@ -60,9 +60,17 @@ function questionOption(raw: unknown): QuestionOption {
 	};
 }
 
+/** One replacement in a file: the text as it is, and what it becomes. */
+export interface TextEdit {
+	before: string;
+	after: string;
+}
+
 export interface PermissionRequest extends ToolCall {
-	/** The full command or input, redacted and clipped. */
+	/** The full command or file content, redacted and clipped. */
 	detail?: string;
+	/** The replacements an Edit or MultiEdit would make, redacted and clipped. */
+	edits?: TextEdit[];
 	suggestions: string[];
 }
 
@@ -441,7 +449,12 @@ const permission: FieldDef<PermissionRequest> = {
 		const tool = str(input.tool_name);
 		if (input.hook_event_name === "PermissionRequest" && tool) {
 			const args = record(input.tool_input);
-			const detail = str(args.command) ?? str(args.content) ?? str(args.new_string);
+			const detail = str(args.command) ?? str(args.content);
+			const edits = (Array.isArray(args.edits) ? args.edits.map(record) : [args]).flatMap((e) =>
+				typeof e.old_string === "string" && typeof e.new_string === "string"
+					? [{ before: sanitize(e.old_string, TEXT_MAX), after: sanitize(e.new_string, TEXT_MAX) }]
+					: [],
+			);
 			const suggestions = Array.isArray(input.permission_suggestions)
 				? input.permission_suggestions.flatMap((s) =>
 						Array.isArray(record(s).rules)
@@ -456,6 +469,7 @@ const permission: FieldDef<PermissionRequest> = {
 			return {
 				...describeTool(tool, input.tool_input, str(input.cwd)),
 				...(detail ? { detail: sanitize(detail, TEXT_MAX) } : {}),
+				...(edits.length > 0 ? { edits } : {}),
 				suggestions: suggestions.map((s) => sanitize(s, 200)),
 			};
 		}

@@ -69,6 +69,32 @@ describe("session state", () => {
 		});
 	});
 
+	it("keeps the text an edit would replace and its replacement", () => {
+		const edit = (tool_name: string, tool_input: Record<string, unknown>) =>
+			run([{ hook_event_name: "PermissionRequest", tool_name, tool_input }]).fields.permission;
+		expect(
+			edit("Edit", {
+				file_path: "/work/app/a.ts",
+				old_string: "let x = 1;",
+				new_string: "const x = 1;",
+			}),
+		).toMatchObject({ edits: [{ before: "let x = 1;", after: "const x = 1;" }] });
+		expect(
+			edit("MultiEdit", {
+				file_path: "/work/app/a.ts",
+				edits: [
+					{ old_string: "a", new_string: "b" },
+					{ old_string: "c", new_string: "" },
+				],
+			}),
+		).toMatchObject({
+			edits: [
+				{ before: "a", after: "b" },
+				{ before: "c", after: "" },
+			],
+		});
+	});
+
 	it("shows questions and plans as their own blocked states", () => {
 		const asking = run([
 			{
