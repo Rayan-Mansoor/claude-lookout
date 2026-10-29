@@ -33,6 +33,8 @@ export interface Session {
 	pid?: number;
 	/** The conversation transcript Claude Code writes; read locally, never sent. */
 	transcript?: string;
+	/** When Claude's shell commands ran, so git work can be credited to the session; never sent. */
+	shell?: ShellRun[];
 	/** Requests waiting on you, oldest first; never sent. */
 	blocks?: Block[];
 	fields: Record<string, unknown>;
@@ -50,6 +52,41 @@ export interface Block {
 	input?: string;
 	state: SessionState;
 	at: number;
+}
+
+/** One shell command Claude ran: from just before it started until it returned. */
+export interface ShellRun {
+	id?: string;
+	start: number;
+	/** Missing while it runs. */
+	end?: number;
+}
+
+/** Shell commands remembered per session; older ones fall out of git credit. */
+const SHELL_RUNS_MAX = 300;
+
+/** Note when a shell command starts and ends. */
+function trackShell(session: Session, input: HookInput, at: number): void {
+	const e = input.hook_event_name;
+	const id = str(input.tool_use_id);
+	if (input.tool_name === "Bash" && e === "PreToolUse") {
+		const runs = [...(session.shell ?? []), id ? { id, start: at } : { start: at }];
+		session.shell = runs.slice(-SHELL_RUNS_MAX);
+		return;
+	}
+	if (!session.shell) return;
+	const ends =
+		input.tool_name === "Bash" &&
+		(e === "PostToolUse" || e === "PostToolUseFailure" || e === "PermissionDenied");
+	// A run that stops or a new prompt means nothing is still running.
+	const endsAll =
+		e === "Stop" || e === "StopFailure" || e === "SessionEnd" || e === "UserPromptSubmit";
+	if (!ends && !endsAll) return;
+	session.shell = session.shell.map((run) =>
+		run.end === undefined && (endsAll || (id !== undefined && run.id === id))
+			? { ...run, end: at }
+			: run,
+	);
 }
 
 /** Tools that put Claude in a blocked state when called. */
@@ -191,6 +228,7 @@ export function reduce(prev: Session | undefined, event: HookEvent, ctx: FieldCo
 		session.state = state;
 		session.since = at;
 	}
+	trackShell(session, input, at);
 	if (event.pid !== undefined) session.pid = event.pid;
 	if (typeof input.transcript_path === "string") session.transcript = input.transcript_path;
 	session.updatedAt = at;

@@ -1,6 +1,13 @@
 import { formatDuration, type SessionView, type TaskProgress } from "@claude-lookout/protocol";
 import { navigate, sessionPath } from "./router.ts";
-import { sessionTitle, stateLabel, stateTone, summarize, text } from "./session-format.ts";
+import {
+	progressLine,
+	sessionTitle,
+	stateLabel,
+	stateTone,
+	summarize,
+	text,
+} from "./session-format.ts";
 
 /** One row on the list: just enough to know whether to open it. */
 export function SessionCard({
@@ -21,6 +28,7 @@ export function SessionCard({
 	]
 		.filter(Boolean)
 		.join(" · ");
+	const progress = progressLine(session);
 
 	return (
 		<a
@@ -43,6 +51,7 @@ export function SessionCard({
 				</svg>
 			</div>
 			<p class="mt-1.5 truncate pl-5.5 text-sm text-muted">{line}</p>
+			{progress && <p class="mt-0.5 truncate pl-5.5 text-sm tabular-nums text-muted">{progress}</p>}
 			{tasks && tasks.total > 0 && session.state !== "gone" && (
 				<div class="mt-2.5 flex items-center gap-2 pl-5.5 pr-7">
 					<div class="h-1 flex-1 overflow-hidden rounded-full bg-surface-2">

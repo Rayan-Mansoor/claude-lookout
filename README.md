@@ -35,10 +35,10 @@ Every open Claude Code session shows one of these states, with how long it has b
 
 Alongside the state, each session carries fields grouped into levels. You choose the highest level that leaves your machine; the default is 2.
 
-| Level       | Fields                                                                                                                                                   |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 · Context | Project, folder, git branch, model, permission mode, effort, how the session started, what Claude is doing now, running subagents, task progress, errors |
-| 2 · Content | Your last prompt, the permission being requested, Claude's questions and options, the plan to approve, Claude's last message                             |
+| Level       | Fields                                                                                                                                                                                                 |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1 · Context | Project, folder, git branch, model, permission mode, effort, how the session started, what Claude is doing now, running subagents, task progress, errors, commits and file changes made in the session |
+| 2 · Content | Your last prompt, the permission being requested, Claude's questions and options, the plan to approve, Claude's last message, commit messages                                                          |
 
 Content fields pass through a secret filter first: API keys, tokens, passwords, private keys and credentials in URLs are masked as `••••`.
 

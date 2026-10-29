@@ -1,5 +1,9 @@
 import {
+	type FileChange,
 	formatDuration,
+	type GitCommit,
+	type GitEvent,
+	type GitSummary,
 	type PermissionRequest,
 	type Question,
 	type QuestionOption,
@@ -7,20 +11,29 @@ import {
 	type Subagent,
 	type TaskProgress,
 	type ToolCall,
+	type WorkingChanges,
 } from "@claude-lookout/protocol";
 import type { ComponentChildren } from "preact";
 import { back } from "./router.ts";
 import {
+	busyLine,
 	clockTime,
 	describeActivity,
+	describeGitEvent,
 	label,
 	MODE_LABELS,
+	plural,
 	START_LABELS,
 	sessionTitle,
 	stateLabel,
 	stateTone,
 	text,
+	upstreamLine,
 } from "./session-format.ts";
+
+/** Files listed before the rest are summed up as "and N more". */
+const FILES_SHOWN = 30;
+
 import type { MachineState } from "./space.ts";
 
 function Section({ title, children }: { title: string; children: ComponentChildren }) {
@@ -130,6 +143,176 @@ function NeedsYou({ session }: { session: SessionView }) {
 			{plan && (
 				<Section title="Plan to approve">
 					<Block>{plan}</Block>
+				</Section>
+			)}
+		</Panel>
+	);
+}
+
+function More({ count }: { count: number }) {
+	return count > 0 ? <p class="text-sm text-muted">and {count} more</p> : null;
+}
+
+const FILE_BADGES: Record<Exclude<FileChange["status"], "changed">, string> = {
+	new: "bg-done-soft text-done",
+	deleted: "bg-halt-soft text-halt",
+	conflict: "bg-lamp-soft text-lamp",
+};
+
+function Lines({ added, removed }: { added: number; removed: number }) {
+	return (
+		<span class="shrink-0 tabular-nums">
+			{added > 0 && <span class="text-done">+{added}</span>}
+			{added > 0 && removed > 0 && " "}
+			{removed > 0 && <span class="text-halt">−{removed}</span>}
+		</span>
+	);
+}
+
+function CommitRow({ commit }: { commit: GitCommit }) {
+	return (
+		<li class="flex items-baseline gap-3 py-1.5 text-sm">
+			<span class="shrink-0 font-mono text-[13px] text-muted">{commit.sha}</span>
+			<span class="min-w-0 flex-1 break-words">{commit.subject}</span>
+			{commit.unpushed && (
+				<span class="shrink-0 rounded-full bg-lamp-soft px-2 py-px text-xs text-lamp">
+					not pushed
+				</span>
+			)}
+			<Lines added={commit.added} removed={commit.removed} />
+		</li>
+	);
+}
+
+const BY_LABELS: Record<NonNullable<GitEvent["by"]>, string> = {
+	you: "you",
+	other: "another session",
+};
+
+function GitEventRow({ event, now }: { event: GitEvent; now: number }) {
+	const dropped = event.kind === "reset" ? (event.dropped ?? []) : [];
+	return (
+		<li class="flex items-baseline gap-3 py-1.5 text-sm">
+			<span class="w-12 shrink-0 text-xs tabular-nums text-muted">{clockTime(event.at, now)}</span>
+			<span class="min-w-0 flex-1 break-words">
+				{describeGitEvent(event)}
+				{dropped.length > 0 && (
+					<span class="block text-muted">{dropped.map((d) => `“${d}”`).join(", ")}</span>
+				)}
+			</span>
+			{event.by && (
+				<span class="shrink-0 rounded-full bg-idle-soft px-2 py-px text-xs text-idle">
+					{BY_LABELS[event.by]}
+				</span>
+			)}
+		</li>
+	);
+}
+
+function FileRow({ file }: { file: FileChange }) {
+	return (
+		<li class="flex items-baseline gap-3 py-1.5 text-sm">
+			<span class="min-w-0 flex-1 break-all font-mono text-[13px]">{file.path}</span>
+			{file.status !== "changed" && (
+				<span class={`shrink-0 rounded-full px-2 py-px text-xs ${FILE_BADGES[file.status]}`}>
+					{file.status}
+				</span>
+			)}
+			<Lines added={file.added} removed={file.removed} />
+		</li>
+	);
+}
+
+/** How far the session has got: what it did in git, and what is changed but not committed. */
+function Progress({ session, now }: { session: SessionView; now: number }) {
+	const f = session.fields;
+	const changes = f.changes as WorkingChanges | undefined;
+	const git = f.git as GitSummary | undefined;
+	const commits = (f.gitCommits as GitCommit[] | undefined) ?? [];
+	const activity = (f.gitActivity as GitEvent[] | undefined) ?? [];
+	const made = commits.filter((c) => !c.earlier);
+	const rewritten = commits.filter((c) => c.earlier);
+	const edited = (f.edited as string[] | undefined) ?? [];
+	const changed = changes?.files.map((file) => file.path) ?? [];
+	// Edits are relative to the session's folder, changes to the repository, which may sit above it.
+	const editedMatchesChanges =
+		edited.length === changes?.total &&
+		edited.every((p) => changed.some((c) => c === p || c.endsWith(`/${p}`)));
+	if (!changes && !git && !activity.length && !edited.length) return null;
+
+	return (
+		<Panel>
+			{(git?.busy || git?.upstream) && (
+				<Section title="Git">
+					{git.busy && <p class="text-sm text-lamp">{busyLine(git.busy)}</p>}
+					{git.upstream && <p class="text-sm">{upstreamLine(git.upstream)}</p>}
+				</Section>
+			)}
+			{git && git.commits > 0 && (
+				<Section title="Commits this session">
+					{made.length > 0 ? (
+						<>
+							<ul class="divide-y divide-line">
+								{made.map((commit) => (
+									<CommitRow key={commit.sha} commit={commit} />
+								))}
+							</ul>
+							<More count={git.commits - made.length} />
+						</>
+					) : (
+						<p class="text-sm">{plural(git.commits, "commit")}</p>
+					)}
+				</Section>
+			)}
+			{git && git.earlier > 0 && (
+				<Section title="Earlier commits rewritten">
+					{rewritten.length > 0 ? (
+						<>
+							<ul class="divide-y divide-line">
+								{rewritten.map((commit) => (
+									<CommitRow key={commit.sha} commit={commit} />
+								))}
+							</ul>
+							<More count={git.earlier - rewritten.length} />
+						</>
+					) : (
+						<p class="text-sm">{plural(git.earlier, "commit")}</p>
+					)}
+				</Section>
+			)}
+			{activity.length > 0 && (
+				<Section title="Git activity">
+					<ul class="divide-y divide-line">
+						{activity.map((event, i) => (
+							<GitEventRow key={`${event.at}-${i}`} event={event} now={now} />
+						))}
+					</ul>
+				</Section>
+			)}
+			{changes && (
+				<Section title="Not committed yet">
+					<p class="text-sm text-muted tabular-nums">
+						{plural(changes.total, "file")} · <span class="text-done">+{changes.added}</span>{" "}
+						<span class="text-halt">−{changes.removed}</span>
+					</p>
+					<ul class="divide-y divide-line">
+						{changes.files.slice(0, FILES_SHOWN).map((file) => (
+							<FileRow key={file.path} file={file} />
+						))}
+					</ul>
+					<More count={changes.total - Math.min(changes.files.length, FILES_SHOWN)} />
+				</Section>
+			)}
+			{edited.length > 0 && !editedMatchesChanges && (
+				<Section title="Edited by this session">
+					<ul class="divide-y divide-line">
+						{edited.slice(0, FILES_SHOWN).map((path) => (
+							<li key={path} class="break-all py-1.5 font-mono text-[13px]">
+								{path}
+							</li>
+						))}
+					</ul>
+					<More count={edited.length - FILES_SHOWN} />
 				</Section>
 			)}
 		</Panel>
@@ -256,6 +439,8 @@ export function SessionScreen({
 						)}
 					</Panel>
 				)}
+
+				<Progress session={session} now={now} />
 
 				<Panel>
 					<Section title="Session">

@@ -19,12 +19,13 @@ export interface FieldContext {
 /**
  * One piece of information shown about a session.
  * `extract` returns the new value, `undefined` to keep the current value, or `null` to clear it.
+ * A field without `extract` is filled in by the agent from outside the hooks, such as git.
  */
 export interface FieldDef<T = unknown> {
 	key: string;
 	label: string;
 	level: Level;
-	extract(input: HookInput, current: T | undefined, ctx: FieldContext): T | null | undefined;
+	extract?(input: HookInput, current: T | undefined, ctx: FieldContext): T | null | undefined;
 }
 
 /** One choice Claude offers, with what it means and, for a visual comparison, a mockup or snippet. */
@@ -69,6 +70,120 @@ export interface TaskProgress {
 	done: number;
 	current?: string;
 }
+
+export interface FileChange {
+	/** Relative to the repository root. */
+	path: string;
+	added: number;
+	removed: number;
+	/** `conflict` while a merge, rebase or cherry-pick waits for the file to be resolved. */
+	status: "new" | "changed" | "deleted" | "conflict";
+}
+
+/** What is changed in the working tree and not yet committed. */
+export interface WorkingChanges {
+	/** The most changed files first, at most `FILE_CHANGES_MAX`. */
+	files: FileChange[];
+	/** How many files are changed in all. */
+	total: number;
+	added: number;
+	removed: number;
+}
+
+/** Where a session's repository stands: what it committed, and against its upstream. */
+export interface GitSummary {
+	/** Commits the session made that are still on a branch. */
+	commits: number;
+	/** Commits from before the session that it rewrote (amended, folded into, rebased). */
+	earlier: number;
+	/** Of those, how many no remote has yet; missing when the repository has no remote. */
+	unpushed?: number;
+	/** The branch the checked-out branch tracks. */
+	upstream?: { ref: string; ahead: number; behind: number };
+	/** A git operation stopped half-way, such as a rebase waiting on a conflict. */
+	busy?: {
+		kind: "rebase" | "merge" | "cherry-pick" | "revert" | "bisect";
+		step?: number;
+		total?: number;
+	};
+}
+
+/** A commit the session made or rewrote, as it is now. */
+export interface GitCommit {
+	/** Short hash. */
+	sha: string;
+	subject: string;
+	added: number;
+	removed: number;
+	files: number;
+	/** Made before the session, then rewritten by it. */
+	earlier?: true;
+	/** No remote has it yet. */
+	unpushed?: true;
+}
+
+/** One thing that happened in git while the session was open. */
+export interface GitEvent {
+	at: number;
+	kind:
+		| "commit"
+		| "amend"
+		| "rebase"
+		| "reset"
+		| "merge"
+		| "pull"
+		| "fetch"
+		| "push"
+		| "switch"
+		| "cherry-pick"
+		| "revert"
+		| "branch-created"
+		| "branch-deleted"
+		| "tag-created"
+		| "tag-deleted"
+		| "stash"
+		| "unstash"
+		| "other";
+	/** Missing when Claude did it in this session; otherwise another session, or you outside Claude. */
+	by?: "other" | "you";
+	/** The commit subject, or for `other` what git recorded. */
+	subject?: string;
+	/** Short hash of the commit made. */
+	sha?: string;
+	/** The branch, tag or remote branch acted on; for `switch` the one moved to. */
+	ref?: string;
+	/** For `switch`, the branch left. */
+	from?: string;
+	/** Commits pulled, fetched, pushed, merged, rebased, or for `reset` dropped. */
+	count?: number;
+	/** For `reset`, the subjects of the dropped commits, newest first. */
+	dropped?: string[];
+	/** For `rebase`, the subjects of the commits that fixups and squashes were folded into. */
+	folded?: string[];
+	/** For `rebase`, commits whose message changed, and commits removed outright. */
+	reworded?: number;
+	removed?: number;
+	/** For `pull`, local commits replayed on top of what was pulled. */
+	replayed?: number;
+	/** The action rewrote a commit made before the session. */
+	earlier?: true;
+	/** A push that replaced commits on the remote. */
+	forced?: true;
+	/** A merge or pull that only moved the branch forward. */
+	fastForward?: true;
+	/** A rebase that was given up, or one still running. */
+	aborted?: true;
+	running?: true;
+}
+
+export const FILE_CHANGES_MAX = 100;
+const EDITED_MAX = 50;
+const EDIT_TOOLS: Record<string, string> = {
+	Edit: "file_path",
+	MultiEdit: "file_path",
+	Write: "file_path",
+	NotebookEdit: "notebook_path",
+};
 
 /** Long enough for the longest reply Claude Code writes by default, so nothing is cut short. */
 const TEXT_MAX = 128_000;
@@ -201,6 +316,49 @@ const tasks: FieldDef<TaskProgress> = {
 	},
 };
 
+const edited: FieldDef<string[]> = {
+	key: "edited",
+	label: "Edited by this session",
+	level: 1,
+	extract: (input, current = []) => {
+		if (input.hook_event_name === "SessionStart" && input.source === "clear") return null;
+		const tool = str(input.tool_name);
+		const key = tool ? EDIT_TOOLS[tool] : undefined;
+		const file = key ? str(record(input.tool_input)[key]) : undefined;
+		if (input.hook_event_name !== "PostToolUse" || !file) return undefined;
+		const dir = str(input.cwd);
+		const path = sanitize(
+			dir && file.startsWith(`${dir}/`) ? file.slice(dir.length + 1) : file,
+			300,
+		);
+		return [path, ...current.filter((p) => p !== path)].slice(0, EDITED_MAX);
+	},
+};
+
+const changes: FieldDef<WorkingChanges> = {
+	key: "changes",
+	label: "Not committed yet",
+	level: 1,
+};
+
+const git: FieldDef<GitSummary> = {
+	key: "git",
+	label: "Commits and upstream",
+	level: 1,
+};
+
+const gitCommits: FieldDef<GitCommit[]> = {
+	key: "gitCommits",
+	label: "Commits this session",
+	level: 2,
+};
+
+const gitActivity: FieldDef<GitEvent[]> = {
+	key: "gitActivity",
+	label: "Git activity",
+	level: 2,
+};
+
 const prompt: FieldDef<string> = {
 	key: "prompt",
 	label: "Your last prompt",
@@ -312,6 +470,11 @@ export const FIELDS: readonly FieldDef[] = [
 	activity,
 	subagents,
 	tasks,
+	edited,
+	changes,
+	git,
+	gitCommits,
+	gitActivity,
 	error,
 	prompt,
 	permission,
@@ -333,7 +496,7 @@ export function applyFields(
 	ctx: FieldContext,
 ): void {
 	for (const def of FIELDS) {
-		const value = def.extract(input, fields[def.key], ctx);
+		const value = def.extract?.(input, fields[def.key], ctx);
 		if (value === null) delete fields[def.key];
 		else if (value !== undefined) fields[def.key] = value;
 	}

@@ -1,10 +1,13 @@
 import {
+	type GitEvent,
+	type GitSummary,
 	type Question,
 	type SessionState,
 	type SessionView,
 	STATE_LABELS,
 	type TaskProgress,
 	type ToolCall,
+	type WorkingChanges,
 } from "@claude-lookout/protocol";
 
 /** Colour family for each state, shared by the list and the session screen. */
@@ -91,6 +94,118 @@ export function clockTime(at: number, now: number): string {
 	return new Date(now).toDateString() === date.toDateString()
 		? time
 		: `${date.toLocaleDateString([], { weekday: "short" })} ${time}`;
+}
+
+export function plural(count: number, one: string, many = `${one}s`): string {
+	return `${count} ${count === 1 ? one : many}`;
+}
+
+/** "7 files changed · +312 −48 · 2 commits · 1 not pushed": how far a session has got, or undefined before any change. */
+export function progressLine(session: SessionView): string | undefined {
+	const f = session.fields;
+	const changes = f.changes as WorkingChanges | undefined;
+	const git = f.git as GitSummary | undefined;
+	const commits = git?.commits ?? 0;
+	const edited = Array.isArray(f.edited) ? f.edited.length : 0;
+	const parts: string[] = [];
+	if (changes) {
+		parts.push(`${plural(changes.total, "file")} changed`);
+		if (changes.added || changes.removed) parts.push(`+${changes.added} −${changes.removed}`);
+	} else if (edited && !commits) {
+		parts.push(`${plural(edited, "file")} edited`);
+	}
+	if (commits) parts.push(plural(commits, "commit"));
+	if (git?.earlier) parts.push(`${plural(git.earlier, "earlier commit")} rewritten`);
+	if (git?.unpushed) parts.push(`${git.unpushed} not pushed`);
+	if (git?.busy) parts.push(busyLine(git.busy));
+	return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
+/** "Rebase stopped at 2 of 5": a git operation left half-way. */
+export function busyLine(busy: NonNullable<GitSummary["busy"]>): string {
+	if (busy.kind === "rebase") {
+		return busy.step && busy.total
+			? `Rebase stopped at ${busy.step} of ${busy.total}`
+			: "Rebase stopped";
+	}
+	if (busy.kind === "bisect") return "Bisecting";
+	return `${busy.kind === "merge" ? "Merge" : busy.kind === "revert" ? "Revert" : "Cherry-pick"} not finished`;
+}
+
+/** "2 ahead, 1 behind origin/main", or "Up to date with origin/main". */
+export function upstreamLine(upstream: NonNullable<GitSummary["upstream"]>): string {
+	const { ref, ahead, behind } = upstream;
+	if (!ahead && !behind) return `Up to date with ${ref}`;
+	if (!behind) return `${ahead} ahead of ${ref}`;
+	if (!ahead) return `${behind} behind ${ref}`;
+	return `${ahead} ahead, ${behind} behind ${ref}`;
+}
+
+const quote = (text: string | undefined) => `“${text ?? ""}”`;
+
+/** What one git event did, in a sentence. */
+export function describeGitEvent(e: GitEvent): string {
+	const onto = e.ref ? ` onto ${e.ref}` : "";
+	const count = e.count ?? 0;
+	switch (e.kind) {
+		case "commit":
+			return `Committed ${quote(e.subject)}`;
+		case "amend":
+			return `Amended ${quote(e.subject)}${e.earlier ? ", a commit from before this session" : ""}`;
+		case "rebase": {
+			if (e.running) return `Rebasing${onto}`;
+			if (e.aborted) return `Gave up rebasing${onto}`;
+			const parts = [`Rebased ${plural(count, "commit")}${onto}`];
+			const folded = e.folded ?? [];
+			if (folded.length === 1) parts.push(`folded a fix into ${quote(folded[0])}`);
+			else if (folded.length > 1)
+				parts.push(`folded fixes into ${plural(folded.length, "commit")}`);
+			if (e.reworded) parts.push(`reworded ${e.reworded}`);
+			if (e.removed) parts.push(`removed ${e.removed}`);
+			const text = parts.join(", ");
+			return e.earlier ? `${text}, rewriting commits from before this session` : text;
+		}
+		case "reset":
+			return count ? `Reset to ${e.ref}, dropping ${plural(count, "commit")}` : `Reset to ${e.ref}`;
+		case "merge":
+			if (e.fastForward) return `Fast-forwarded to ${e.ref}, ${plural(count, "commit")}`;
+			return `Merged ${e.ref ?? quote(e.subject)}${count ? `, ${plural(count, "commit")}` : ""}`;
+		case "pull": {
+			if (e.running) return "Pulling and rebasing";
+			if (e.aborted) return "Gave up rebasing a pull";
+			const pulled = count ? `Pulled ${plural(count, "commit")}` : "Pulled, nothing new";
+			return e.replayed
+				? `${pulled}, replaying ${plural(e.replayed, "local commit")} on top`
+				: pulled;
+		}
+		case "fetch":
+			return `Fetched ${plural(count, "new commit")} on ${e.ref}`;
+		case "push":
+			if (e.count === undefined) return `Pushed ${e.ref} for the first time`;
+			return `${e.forced ? "Force-pushed" : "Pushed"} ${plural(count, "commit")} to ${e.ref}`;
+		case "switch":
+			return `Switched from ${e.from} to ${e.ref}`;
+		case "cherry-pick":
+			return `Cherry-picked ${quote(e.subject)}`;
+		case "revert": {
+			const reverted = e.subject?.match(/^Revert "(.*)"$/)?.[1];
+			return reverted ? `Reverted ${quote(reverted)}` : `Reverted with ${quote(e.subject)}`;
+		}
+		case "branch-created":
+			return `Created branch ${e.ref}`;
+		case "branch-deleted":
+			return `Deleted branch ${e.ref}`;
+		case "tag-created":
+			return `Tagged ${e.ref}`;
+		case "tag-deleted":
+			return `Deleted tag ${e.ref}`;
+		case "stash":
+			return count > 1 ? `Stashed ${count} sets of changes` : "Stashed changes";
+		case "unstash":
+			return count > 1 ? `Popped or dropped ${count} stashes` : "Popped or dropped a stash";
+		default:
+			return e.subject ?? "Moved HEAD";
+	}
 }
 
 /** The one line under a session's title: what's happening, or what happened last. */

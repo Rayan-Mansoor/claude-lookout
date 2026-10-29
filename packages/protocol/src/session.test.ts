@@ -246,6 +246,71 @@ describe("session state", () => {
 	});
 });
 
+describe("shell commands", () => {
+	const bash = (event: string, id: string, input: Record<string, unknown> = {}) =>
+		({
+			hook_event_name: event,
+			tool_name: "Bash",
+			tool_use_id: id,
+			tool_input: { command: "git commit", ...input },
+		}) as Partial<HookInput>;
+
+	it("notes when each one starts and returns", () => {
+		const s = run([bash("PreToolUse", "t1"), bash("PostToolUse", "t1"), bash("PreToolUse", "t2")]);
+		expect(s.shell).toEqual([
+			{ id: "t1", start: 1000, end: 1001 },
+			{ id: "t2", start: 1002 },
+		]);
+	});
+
+	it("ends every command still running when the run stops", () => {
+		const s = run([bash("PreToolUse", "t1"), { hook_event_name: "Stop" }]);
+		expect(s.shell).toEqual([{ id: "t1", start: 1000, end: 1001 }]);
+	});
+
+	it("ends a failed or refused command", () => {
+		const s = run([
+			bash("PreToolUse", "t1"),
+			bash("PostToolUseFailure", "t1"),
+			bash("PreToolUse", "t2"),
+			bash("PermissionDenied", "t2"),
+		]);
+		expect(s.shell?.map((r) => r.end)).toEqual([1001, 1003]);
+	});
+});
+
+describe("edited files", () => {
+	const edit = (file: string, tool = "Edit"): Partial<HookInput> => ({
+		hook_event_name: "PostToolUse",
+		tool_name: tool,
+		tool_input: tool === "NotebookEdit" ? { notebook_path: file } : { file_path: file },
+	});
+
+	it("lists files relative to the folder, newest first, without repeats", () => {
+		const s = run([
+			edit("/work/app/src/a.ts"),
+			edit("/work/app/b.md", "Write"),
+			edit("/work/app/src/a.ts", "MultiEdit"),
+			edit("/elsewhere/c.ipynb", "NotebookEdit"),
+			{
+				hook_event_name: "PostToolUse",
+				tool_name: "Read",
+				tool_input: { file_path: "/work/app/r" },
+			},
+		]);
+		expect(s.fields.edited).toEqual(["/elsewhere/c.ipynb", "src/a.ts", "b.md"]);
+	});
+
+	it("keeps the 50 most recent and starts over after /clear", () => {
+		const many = Array.from({ length: 60 }, (_, i) => edit(`/work/app/f${i}.ts`));
+		const s = run(many);
+		expect(s.fields.edited).toHaveLength(50);
+		expect((s.fields.edited as string[])[0]).toBe("f59.ts");
+		const cleared = run([...many, { hook_event_name: "SessionStart", source: "clear" }]);
+		expect(cleared.fields.edited).toBeUndefined();
+	});
+});
+
 describe("snapshot", () => {
 	it("always fits the budget, cutting back the oldest sessions first", () => {
 		const big = "x".repeat(100_000);
@@ -286,5 +351,21 @@ describe("snapshot", () => {
 		expect(level1?.fields.prompt).toBeUndefined();
 		expect(level1?.fields.project).toBe("app");
 		expect(level2?.fields.prompt).toBe("secret plan");
+	});
+
+	it("shows commit counts at level 1 and commit messages and git activity from level 2", () => {
+		const s = run([{ hook_event_name: "SessionStart", source: "startup" }]);
+		s.fields.git = { commits: 1, earlier: 0 };
+		s.fields.gitCommits = [
+			{ sha: "abc1234", subject: "Add login", added: 1, removed: 0, files: 1 },
+		];
+		s.fields.gitActivity = [{ at: 1, kind: "commit", subject: "Add login" }];
+		const [level1] = buildSnapshot({ id: "m", name: "Mac" }, [s], 1, 0).sessions;
+		const [level2] = buildSnapshot({ id: "m", name: "Mac" }, [s], 2, 0).sessions;
+		expect(level1?.fields.git).toEqual({ commits: 1, earlier: 0 });
+		expect(level1?.fields.gitCommits).toBeUndefined();
+		expect(level1?.fields.gitActivity).toBeUndefined();
+		expect(level2?.fields.gitCommits).toHaveLength(1);
+		expect(level2?.fields.gitActivity).toHaveLength(1);
 	});
 });

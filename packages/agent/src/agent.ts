@@ -2,6 +2,7 @@ import {
 	buildSnapshot,
 	type FieldContext,
 	type HookEvent,
+	type HookInput,
 	reduce,
 	type Session,
 	type Snapshot,
@@ -21,6 +22,7 @@ export class Agent {
 	private readonly resolvePid: (pid: number) => number | undefined;
 	private readonly pids = new Map<number, number>();
 	private readonly listeners = new Set<(snapshot: Snapshot) => void>();
+	private readonly eventListeners = new Set<(session: Session, input: HookInput) => void>();
 
 	constructor(
 		config: Config,
@@ -40,8 +42,27 @@ export class Agent {
 		const pid = event.pid === undefined ? undefined : this.claudePid(event.pid);
 		const { pid: _, ...rest } = event;
 		const resolved: HookEvent = pid === undefined ? rest : { ...rest, pid };
-		this.sessions.set(id, reduce(this.sessions.get(id), resolved, this.ctx));
+		const after = reduce(this.sessions.get(id), resolved, this.ctx);
+		this.sessions.set(id, after);
 		this.lastEventAt = this.now();
+		this.changed();
+		for (const listener of this.eventListeners) listener(after, event.input);
+	}
+
+	/**
+	 * Set fields worked out outside the hooks, where `null` clears one. The session keeps its
+	 * state and timestamps, and viewers only hear about it when something actually changed.
+	 */
+	setFields(id: string, values: Record<string, unknown>): void {
+		const session = this.sessions.get(id);
+		if (!session) return;
+		const fields = { ...session.fields };
+		for (const [key, value] of Object.entries(values)) {
+			if (value === null) delete fields[key];
+			else fields[key] = value;
+		}
+		if (JSON.stringify(fields) === JSON.stringify(session.fields)) return;
+		this.sessions.set(id, { ...session, fields });
 		this.changed();
 	}
 
@@ -91,6 +112,12 @@ export class Agent {
 	onChange(listener: (snapshot: Snapshot) => void): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
+	}
+
+	/** Called after each hook event, with the session as it now stands. */
+	onEvent(listener: (session: Session, input: HookInput) => void): () => void {
+		this.eventListeners.add(listener);
+		return () => this.eventListeners.delete(listener);
 	}
 
 	private changed(): void {

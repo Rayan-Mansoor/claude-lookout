@@ -15,6 +15,8 @@ import { gitBranch } from "./git.ts";
 import { lookoutHome, paths } from "./home.ts";
 import type { Request } from "./ipc.ts";
 import { acquireLock, releaseLock } from "./lock.ts";
+import { ProgressTracker } from "./progress.ts";
+
 import { directPublisher } from "./transport/direct.ts";
 import { throttled } from "./transport/publisher.ts";
 import { checkSessions, findClaudePid } from "./watch.ts";
@@ -123,6 +125,7 @@ export async function runDaemon(): Promise<void> {
 	const publisher = await directPublisher(config.transport, config.space, log);
 	const publish = throttled(publisher, 250, (err) => log(`publish failed: ${err.message}`));
 	agent.onChange((snapshot) => publish(snapshot, config.machine.id));
+	new ProgressTracker(agent).start();
 	publish(agent.snapshot(), config.machine.id);
 
 	const saveSessions = () =>
