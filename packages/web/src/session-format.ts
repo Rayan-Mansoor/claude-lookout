@@ -1,14 +1,19 @@
 import {
+	formatDuration,
 	type GitEvent,
 	type GitSummary,
 	type Question,
 	type SessionState,
 	type SessionView,
 	STATE_LABELS,
+	type Step,
 	type TaskProgress,
 	type ToolCall,
 	type WorkingChanges,
 } from "@claude-lookout/protocol";
+
+/** A step running at least this long is called out, so a stuck one stands out. */
+const LONG_STEP_MS = 60_000;
 
 /** Colour family for each state, shared by the list and the session screen. */
 export const TONES: Record<SessionState, { dot: string; badge: string; card: string }> = {
@@ -208,8 +213,30 @@ export function describeGitEvent(e: GitEvent): string {
 	}
 }
 
+/** The tool call still running, when Claude is mid-step. */
+export function runningStep(session: SessionView): Step | undefined {
+	if (session.state !== "working" && session.state !== "permission") return undefined;
+	const last = (session.fields.steps as Step[] | undefined)?.at(-1);
+	return last && !last.outcome ? last : undefined;
+}
+
+/** "Bash · npm test", or "Bash for 4m · npm test" once it has run long. */
+export function describeStep(step: Step, now: number): string {
+	const running = now - step.at;
+	return running >= LONG_STEP_MS
+		? `${step.tool} for ${formatDuration(running)}${step.target ? ` · ${step.target}` : ""}`
+		: describeActivity(step);
+}
+
+export function firstLine(value: string | undefined): string | undefined {
+	return value
+		?.split("\n")
+		.find((line) => line.trim())
+		?.trim();
+}
+
 /** The one line under a session's title: what's happening, or what happened last. */
-export function summarize(session: SessionView): string | undefined {
+export function summarize(session: SessionView, now: number): string | undefined {
 	const f = session.fields;
 	const activity = f.activity as ToolCall | undefined;
 	const tasks = f.tasks as TaskProgress | undefined;
@@ -220,7 +247,13 @@ export function summarize(session: SessionView): string | undefined {
 			return "Plan ready for review";
 		case "finished":
 			return text(f.error) ?? text(f.lastMessage);
-		case "working":
+		case "working": {
+			const step = runningStep(session);
+			if (step && now - step.at >= LONG_STEP_MS) return describeStep(step, now);
+			return (
+				firstLine(text(f.narration)) ?? (activity ? describeActivity(activity) : tasks?.current)
+			);
+		}
 		case "permission":
 			return activity ? describeActivity(activity) : tasks?.current;
 		default:

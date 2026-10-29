@@ -25,7 +25,13 @@ export interface FieldDef<T = unknown> {
 	key: string;
 	label: string;
 	level: Level;
-	extract?(input: HookInput, current: T | undefined, ctx: FieldContext): T | null | undefined;
+	extract?(
+		input: HookInput,
+		current: T | undefined,
+		ctx: FieldContext,
+		/** When the hook ran, in milliseconds since the epoch. */
+		at: number,
+	): T | null | undefined;
 }
 
 /** One choice Claude offers, with what it means and, for a visual comparison, a mockup or snippet. */
@@ -176,6 +182,17 @@ export interface GitEvent {
 	running?: true;
 }
 
+/** One tool call in a session's recent history. */
+export interface Step extends ToolCall {
+	/** When the call started. */
+	at: number;
+	/** How it ended; missing while it runs or when the run stopped first. */
+	outcome?: "done" | "failed" | "denied";
+	id?: string;
+}
+
+const STEPS_MAX = 15;
+
 export const FILE_CHANGES_MAX = 100;
 const EDITED_MAX = 50;
 const EDIT_TOOLS: Record<string, string> = {
@@ -186,7 +203,7 @@ const EDIT_TOOLS: Record<string, string> = {
 };
 
 /** Long enough for the longest reply Claude Code writes by default, so nothing is cut short. */
-const TEXT_MAX = 128_000;
+export const TEXT_MAX = 128_000;
 
 const RUN_START = new Set(["UserPromptSubmit"]);
 const RUN_END = new Set(["Stop", "StopFailure", "SessionEnd"]);
@@ -314,6 +331,46 @@ const tasks: FieldDef<TaskProgress> = {
 			...(current ? { current: sanitize(current, 160) } : {}),
 		};
 	},
+};
+
+const steps: FieldDef<Step[]> = {
+	key: "steps",
+	label: "Recent steps",
+	level: 1,
+	extract: (input, current = [], _ctx, at) => {
+		const e = input.hook_event_name;
+		if (e === "SessionStart" && input.source === "clear") return null;
+		// A subagent's own calls are summed up by the step that started it.
+		const tool = str(input.tool_name);
+		if (!tool || input.agent_id !== undefined) return undefined;
+		const id = str(input.tool_use_id);
+		if (e === "PreToolUse") {
+			const step: Step = { ...describeTool(tool, input.tool_input, str(input.cwd)), at };
+			return [...current, id ? { ...step, id } : step].slice(-STEPS_MAX);
+		}
+		const outcome =
+			e === "PostToolUse"
+				? "done"
+				: e === "PostToolUseFailure"
+					? "failed"
+					: e === "PermissionDenied"
+						? "denied"
+						: undefined;
+		if (!outcome) return undefined;
+		const i = current.findLastIndex(
+			(s) => !s.outcome && (id && s.id ? s.id === id : s.tool === tool),
+		);
+		if (i < 0) return undefined;
+		return current.map((s, j) => (j === i ? { ...s, outcome } : s));
+	},
+};
+
+/** What Claude last said while working, read from the transcript; cleared by your next prompt. */
+const narration: FieldDef<string> = {
+	key: "narration",
+	label: "Claude's latest update",
+	level: 2,
+	extract: (input) => (RUN_START.has(input.hook_event_name) ? null : undefined),
 };
 
 const edited: FieldDef<string[]> = {
@@ -470,6 +527,7 @@ export const FIELDS: readonly FieldDef[] = [
 	activity,
 	subagents,
 	tasks,
+	steps,
 	edited,
 	changes,
 	git,
@@ -480,6 +538,7 @@ export const FIELDS: readonly FieldDef[] = [
 	permission,
 	questions,
 	plan,
+	narration,
 	lastMessage,
 ] as FieldDef[];
 
@@ -494,9 +553,10 @@ export function applyFields(
 	fields: Record<string, unknown>,
 	input: HookInput,
 	ctx: FieldContext,
+	at: number,
 ): void {
 	for (const def of FIELDS) {
-		const value = def.extract?.(input, fields[def.key], ctx);
+		const value = def.extract?.(input, fields[def.key], ctx, at);
 		if (value === null) delete fields[def.key];
 		else if (value !== undefined) fields[def.key] = value;
 	}

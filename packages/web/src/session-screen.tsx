@@ -8,6 +8,7 @@ import {
 	type Question,
 	type QuestionOption,
 	type SessionView,
+	type Step,
 	type Subagent,
 	type TaskProgress,
 	type ToolCall,
@@ -20,9 +21,11 @@ import {
 	clockTime,
 	describeActivity,
 	describeGitEvent,
+	describeStep,
 	label,
 	MODE_LABELS,
 	plural,
+	runningStep,
 	START_LABELS,
 	sessionTitle,
 	stateLabel,
@@ -145,6 +148,53 @@ function NeedsYou({ session }: { session: SessionView }) {
 					<Block>{plan}</Block>
 				</Section>
 			)}
+		</Panel>
+	);
+}
+
+const OUTCOMES: Record<
+	NonNullable<Step["outcome"]>,
+	{ mark: string; tone: string; label: string }
+> = {
+	done: { mark: "✓", tone: "text-done", label: "Done" },
+	failed: { mark: "✕", tone: "text-halt", label: "Failed" },
+	denied: { mark: "✕", tone: "text-halt", label: "Not allowed" },
+};
+
+/** The last tool calls, newest first, with how each one went. */
+function Steps({ session, now }: { session: SessionView; now: number }) {
+	const steps = (session.fields.steps as Step[] | undefined) ?? [];
+	if (steps.length === 0) return null;
+	const running = runningStep(session);
+	return (
+		<Panel>
+			<Section title="Recent steps">
+				<ul class="divide-y divide-line">
+					{[...steps].reverse().map((step, i) => {
+						const outcome = step.outcome && OUTCOMES[step.outcome];
+						return (
+							<li key={`${step.at}-${i}`} class="flex items-baseline gap-3 py-1.5 text-sm">
+								<span class="w-4 shrink-0 text-center" aria-hidden="true">
+									{step === running ? (
+										<span class="pulse inline-block size-2 rounded-full bg-working" />
+									) : (
+										<span class={outcome?.tone ?? "text-muted"}>{outcome?.mark ?? "·"}</span>
+									)}
+								</span>
+								<span class="sr-only">
+									{step === running ? "Running" : (outcome?.label ?? "Stopped")}
+								</span>
+								<span class="min-w-0 flex-1 break-words font-mono text-[13px]">
+									{step === running ? describeStep(step, now) : describeActivity(step)}
+								</span>
+								{step.outcome === "denied" && (
+									<span class="shrink-0 text-xs text-halt">not allowed</span>
+								)}
+							</li>
+						);
+					})}
+				</ul>
+			</Section>
 		</Panel>
 	);
 }
@@ -367,6 +417,9 @@ export function SessionScreen({
 	const error = text(f.error);
 	const prompt = text(f.prompt);
 	const lastMessage = text(f.lastMessage);
+	// Once the run ends, Claude's last message says the same thing in full.
+	const narration = session.state === "finished" ? undefined : text(f.narration);
+	const step = runningStep(session);
 
 	return (
 		<main class="mx-auto max-w-2xl px-4 pt-[max(1.25rem,env(safe-area-inset-top))] pb-12">
@@ -392,18 +445,25 @@ export function SessionScreen({
 						</span>
 					</div>
 					{activity && session.state === "working" && (
-						<p class="break-words font-mono text-[13px]">{describeActivity(activity)}</p>
+						<p class="break-words font-mono text-[13px]">
+							{step ? describeStep(step, now) : describeActivity(activity)}
+						</p>
 					)}
 					{error && <p class="text-sm text-halt">{error}</p>}
 				</Panel>
 
 				<NeedsYou session={session} />
 
-				{(prompt || lastMessage) && (
+				{(prompt || narration || lastMessage) && (
 					<Panel>
 						{prompt && (
 							<Section title="Your last prompt">
 								<Block>{prompt}</Block>
+							</Section>
+						)}
+						{narration && (
+							<Section title="Claude's latest update">
+								<Block>{narration}</Block>
 							</Section>
 						)}
 						{lastMessage && (
@@ -439,6 +499,8 @@ export function SessionScreen({
 						)}
 					</Panel>
 				)}
+
+				<Steps session={session} now={now} />
 
 				<Progress session={session} now={now} />
 

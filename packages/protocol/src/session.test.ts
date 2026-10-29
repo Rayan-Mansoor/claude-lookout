@@ -279,6 +279,74 @@ describe("shell commands", () => {
 	});
 });
 
+describe("recent steps", () => {
+	const pre = (tool: string, id: string, input: object = {}): Partial<HookInput> => ({
+		hook_event_name: "PreToolUse",
+		tool_name: tool,
+		tool_use_id: id,
+		tool_input: input,
+	});
+	const post = (event: string, tool: string, id: string): Partial<HookInput> => ({
+		hook_event_name: event,
+		tool_name: tool,
+		tool_use_id: id,
+	});
+
+	it("records each call with how it ended", () => {
+		const s = run([
+			pre("Bash", "t1", { command: "npm test" }),
+			post("PostToolUseFailure", "Bash", "t1"),
+			pre("Edit", "t2", { file_path: "/work/app/src/a.ts" }),
+			post("PostToolUse", "Edit", "t2"),
+			pre("Bash", "t3", { command: "rm -rf build" }),
+			post("PermissionDenied", "Bash", "t3"),
+			pre("Read", "t4", { file_path: "/work/app/b.ts" }),
+		]);
+		expect(s.fields.steps).toEqual([
+			{ tool: "Bash", target: "npm test", at: 1000, id: "t1", outcome: "failed" },
+			{ tool: "Edit", target: "src/a.ts", at: 1002, id: "t2", outcome: "done" },
+			{ tool: "Bash", target: "rm -rf build", at: 1004, id: "t3", outcome: "denied" },
+			{ tool: "Read", target: "b.ts", at: 1006, id: "t4" },
+		]);
+	});
+
+	it("matches results to calls running side by side", () => {
+		const s = run([
+			pre("Read", "a", { file_path: "/work/app/a" }),
+			pre("Read", "b", { file_path: "/work/app/b" }),
+			post("PostToolUse", "Read", "b"),
+		]);
+		expect((s.fields.steps as { outcome?: string }[]).map((x) => x.outcome)).toEqual([
+			undefined,
+			"done",
+		]);
+	});
+
+	it("leaves a subagent's own calls out and keeps the last 15", () => {
+		const calls = Array.from({ length: 20 }, (_, i) => pre("Grep", `g${i}`, { pattern: `p${i}` }));
+		const s = run([...calls, { ...pre("Bash", "sub", { command: "ls" }), agent_id: "a1" }]);
+		const steps = s.fields.steps as { target?: string }[];
+		expect(steps).toHaveLength(15);
+		expect(steps.at(-1)?.target).toBe("p19");
+	});
+});
+
+describe("Claude's latest update", () => {
+	it("is cleared by your next prompt", () => {
+		const s = run([{ hook_event_name: "SessionStart", source: "startup" }]);
+		s.fields.narration = "Running the tests now";
+		const next = reduce(
+			s,
+			{
+				input: { session_id: "s1", hook_event_name: "UserPromptSubmit", prompt: "go on" },
+				at: 5000,
+			},
+			ctx,
+		);
+		expect(next.fields.narration).toBeUndefined();
+	});
+});
+
 describe("edited files", () => {
 	const edit = (file: string, tool = "Edit"): Partial<HookInput> => ({
 		hook_event_name: "PostToolUse",

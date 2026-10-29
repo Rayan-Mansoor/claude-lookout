@@ -16,7 +16,7 @@ import { lookoutHome, paths } from "./home.ts";
 import type { Request } from "./ipc.ts";
 import { acquireLock, releaseLock } from "./lock.ts";
 import { ProgressTracker } from "./progress.ts";
-
+import { followTranscripts, TranscriptReader } from "./transcript.ts";
 import { directPublisher } from "./transport/direct.ts";
 import { throttled } from "./transport/publisher.ts";
 import { checkSessions, findClaudePid } from "./watch.ts";
@@ -164,7 +164,9 @@ export async function runDaemon(): Promise<void> {
 		if (agent.idle() && Date.now() - agent.lastEventAt > IDLE_MS) void shutdown("no open sessions");
 	}, TICK_MS);
 
+	const transcripts = new TranscriptReader();
 	setInterval(() => {
 		for (const session of checkSessions(agent.sessions.values(), Date.now())) agent.update(session);
+		followTranscripts(agent, transcripts);
 	}, WATCH_MS);
 }

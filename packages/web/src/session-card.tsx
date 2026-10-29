@@ -24,7 +24,7 @@ export function SessionCard({
 	const line = [
 		formatDuration(now - session.since),
 		text(session.fields.branch),
-		summarize(session),
+		summarize(session, now),
 	]
 		.filter(Boolean)
 		.join(" · ");

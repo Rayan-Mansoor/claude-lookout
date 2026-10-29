@@ -232,7 +232,7 @@ export function reduce(prev: Session | undefined, event: HookEvent, ctx: FieldCo
 	if (event.pid !== undefined) session.pid = event.pid;
 	if (typeof input.transcript_path === "string") session.transcript = input.transcript_path;
 	session.updatedAt = at;
-	applyFields(session.fields, input, ctx);
+	applyFields(session.fields, input, ctx, at);
 	return session;
 }
 
