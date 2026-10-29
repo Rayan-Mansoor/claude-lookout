@@ -2,6 +2,7 @@ export * from "./api.ts";
 export * from "./crypto.ts";
 export * from "./fields.ts";
 export * from "./hooks.ts";
+export * from "./plain.ts";
 export * from "./redact.ts";
 export * from "./session.ts";
 export * from "./snapshot.ts";

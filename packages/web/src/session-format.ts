@@ -2,6 +2,7 @@ import {
 	formatDuration,
 	type GitEvent,
 	type GitSummary,
+	plainLine,
 	type Question,
 	type SessionState,
 	type SessionView,
@@ -234,13 +235,6 @@ export function describeStep(step: Step, now: number): string {
 		: describeActivity(step);
 }
 
-export function firstLine(value: string | undefined): string | undefined {
-	return value
-		?.split("\n")
-		.find((line) => line.trim())
-		?.trim();
-}
-
 /** The one line under a session's title: what's happening, or what happened last. */
 export function summarize(session: SessionView, now: number): string | undefined {
 	const f = session.fields;
@@ -248,16 +242,16 @@ export function summarize(session: SessionView, now: number): string | undefined
 	const tasks = f.tasks as TaskProgress | undefined;
 	switch (session.state) {
 		case "question":
-			return (f.questions as Question[] | undefined)?.[0]?.question;
+			return plainLine((f.questions as Question[] | undefined)?.[0]?.question);
 		case "plan":
 			return "Plan ready for review";
 		case "finished":
-			return text(f.error) ?? text(f.lastMessage);
+			return text(f.error) ?? plainLine(text(f.lastMessage));
 		case "working": {
 			const step = runningStep(session);
 			if (step && now - step.at >= LONG_STEP_MS) return describeStep(step, now);
 			return (
-				firstLine(text(f.narration)) ?? (activity ? describeActivity(activity) : tasks?.current)
+				plainLine(text(f.narration)) ?? (activity ? describeActivity(activity) : tasks?.current)
 			);
 		}
 		case "permission":

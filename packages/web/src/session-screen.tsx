@@ -15,6 +15,7 @@ import {
 	type WorkingChanges,
 } from "@claude-lookout/protocol";
 import type { ComponentChildren } from "preact";
+import { InlineMarkdown, Markdown } from "./markdown.tsx";
 import { back } from "./router.ts";
 import {
 	busyLine,
@@ -135,7 +136,9 @@ function NeedsYou({ session }: { session: SessionView }) {
 			)}
 			{questions?.map((q) => (
 				<Section key={q.question} title={q.header ?? "Claude is asking"}>
-					<p>{q.question}</p>
+					<div class="space-y-2">
+						<InlineMarkdown source={q.question} />
+					</div>
 					<ul class="space-y-1.5">
 						{(q.options as (QuestionOption | string)[]).map(asOption).map((option, i) => (
 							<OptionRow key={i} option={option} />
@@ -146,7 +149,7 @@ function NeedsYou({ session }: { session: SessionView }) {
 			))}
 			{plan && (
 				<Section title="Plan to approve">
-					<Block>{plan}</Block>
+					<Markdown source={plan} />
 				</Section>
 			)}
 		</Panel>
@@ -468,12 +471,12 @@ export function SessionScreen({
 						)}
 						{narration && (
 							<Section title="Claude's latest update">
-								<Block>{narration}</Block>
+								<Markdown source={narration} />
 							</Section>
 						)}
 						{lastMessage && (
 							<Section title="Claude's last message">
-								<Block>{lastMessage}</Block>
+								<Markdown source={lastMessage} />
 							</Section>
 						)}
 					</Panel>
