@@ -24,7 +24,7 @@ export function SessionScreen({
 	const session = machine?.snapshot.sessions.find((s) => s.id === sessionId);
 
 	return (
-		<main class="mx-auto max-w-2xl px-4 pt-[max(1.25rem,env(safe-area-inset-top))] pb-12">
+		<main class="mx-auto max-w-[680px] px-4 pt-[max(1.25rem,env(safe-area-inset-top))] pb-12 lg:pt-10">
 			{!machine || !session ? (
 				<>
 					<ScreenHeader title="" backLabel="Back" />

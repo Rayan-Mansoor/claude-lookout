@@ -1,46 +1,57 @@
 @import "tailwindcss";
 
+@font-face {
+	font-family: "Geist";
+	src: url("/fonts/Geist.woff2") format("woff2");
+	font-weight: 100 900;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "Geist Mono";
+	src: url("/fonts/GeistMono.woff2") format("woff2");
+	font-weight: 100 900;
+	font-display: swap;
+}
+
 /*
  * The palette. Every colour in the app comes from these tokens; light and dark share names.
- * Warm paper and ink, with an amber lamp for anything that needs you.
+ * Graphite surfaces and one signal lamp: amber means a session needs you, and nothing else.
+ * The other state colours only light a session's lamp, its +/− counts and diffs.
  */
 :root {
-	--bg: #f5f3ee;
+	--bg: #f6f7f8;
 	--surface: #ffffff;
-	--surface-2: #efece5;
-	--ink: #1d1b17;
-	--muted: #6d685f;
-	--line: #e2ded4;
-	--lamp: #c7780a;
-	--lamp-soft: #fbefd9;
-	--working: #2f64c9;
-	--working-soft: #e3ebfa;
-	--done: #2b7a4b;
-	--done-soft: #e1f1e7;
-	--halt: #b0472e;
-	--halt-soft: #f8e5df;
-	--idle: #7a756b;
-	--idle-soft: #ebe8e1;
+	--surface-2: #eef0f3;
+	--ink: #0f1217;
+	--muted: #5c6571;
+	--line: #e2e5e9;
+	--lamp: #a35400;
+	--lamp-soft: #fdf1e2;
+	--working: #3b5bcc;
+	--done: #1d7a4c;
+	--done-soft: #e3f3ea;
+	--halt: #b5321f;
+	--halt-soft: #fbe6e2;
+	--idle: #8a919b;
 }
 
 @media (prefers-color-scheme: dark) {
 	:root {
-		--bg: #151412;
-		--surface: #1e1d1a;
-		--surface-2: #282622;
-		--ink: #ece9e2;
-		--muted: #9d978b;
-		--line: #312e29;
-		--lamp: #e8a33d;
-		--lamp-soft: #3a2c15;
-		--working: #7aa5f0;
-		--working-soft: #1d2a42;
-		--done: #6cc490;
-		--done-soft: #18301f;
-		--halt: #ec8a70;
-		--halt-soft: #3a211a;
-		--idle: #a29c90;
-		--idle-soft: #2a2824;
+		--bg: #0c0e11;
+		--surface: #14171c;
+		--surface-2: #1b1f25;
+		--ink: #e7eaee;
+		--muted: #8a939f;
+		--line: #232830;
+		--lamp: #ffb547;
+		--lamp-soft: #2a1f0f;
+		--working: #8ea6ff;
+		--done: #5ccf96;
+		--done-soft: #12261b;
+		--halt: #ff7d69;
+		--halt-soft: #2e1714;
+		--idle: #5f6670;
 	}
 }
 
@@ -54,15 +65,26 @@
 	--color-lamp: var(--lamp);
 	--color-lamp-soft: var(--lamp-soft);
 	--color-working: var(--working);
-	--color-working-soft: var(--working-soft);
 	--color-done: var(--done);
 	--color-done-soft: var(--done-soft);
 	--color-halt: var(--halt);
 	--color-halt-soft: var(--halt-soft);
 	--color-idle: var(--idle);
-	--color-idle-soft: var(--idle-soft);
-	--font-sans: ui-sans-serif, -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
-	--font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+	--font-sans: "Geist", ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+	--font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+	/* The type scale: screen titles, body text, secondary lines, and code or numbers. */
+	--text-title: 1.375rem;
+	--text-title--line-height: 1.75rem;
+	--text-title--letter-spacing: -0.02em;
+	--text-body: 0.9375rem;
+	--text-body--line-height: 1.5rem;
+	--text-meta: 0.8125rem;
+	--text-meta--line-height: 1.25rem;
+	--text-mono: 0.8125rem;
+	--text-mono--line-height: 1.25rem;
+	/* Two corner sizes: containers, and small things inside them. */
+	--radius-box: 10px;
+	--radius-small: 6px;
 }
 
 html,
@@ -73,11 +95,20 @@ body {
 
 body {
 	font-family: var(--font-sans);
+	font-size: var(--text-body);
+	line-height: var(--text-body--line-height);
 	-webkit-font-smoothing: antialiased;
 	-webkit-tap-highlight-color: transparent;
 }
 
-@keyframes pulse-dot {
+/* Code type shows exactly what was typed (no ligatures joining -- or =>), with numbers that line up. */
+.font-mono {
+	font-variant-numeric: tabular-nums;
+	font-variant-ligatures: none;
+	font-feature-settings: "calt" 0;
+}
+
+@keyframes breathe {
 	0%,
 	100% {
 		opacity: 1;
@@ -87,12 +118,12 @@ body {
 	}
 }
 
-.pulse {
-	animation: pulse-dot 1.6s ease-in-out infinite;
+.breathe {
+	animation: breathe 2.4s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.pulse {
+	.breathe {
 		animation: none;
 	}
 }

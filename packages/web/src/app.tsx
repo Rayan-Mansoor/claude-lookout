@@ -4,6 +4,7 @@ import { forgetPush, type PushState, usePush } from "./notifications.ts";
 import { useRoute } from "./router.ts";
 import { SessionCard } from "./session-card.tsx";
 import { urgency } from "./session-format.ts";
+import { Strip } from "./session-parts.tsx";
 import { SessionScreen } from "./session-screen.tsx";
 import {
 	type Connection,
@@ -43,18 +44,18 @@ function Pairing({ onPaired }: { onPaired: (secret: string) => void }) {
 	return (
 		<main class="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-4 py-10">
 			<Logo />
-			<h1 class="mt-6 text-2xl font-semibold tracking-tight">Look in on Claude Code</h1>
+			<h1 class="mt-8 text-title font-semibold">Look in on Claude Code</h1>
 			<p class="mt-2 text-muted">
-				Open the view link that <code class="font-mono text-sm">claude-lookout setup</code> printed
-				on your computer, or scan its QR code. This device remembers it after that.
+				Open the view link that <code class="font-mono text-mono">claude-lookout setup</code>{" "}
+				printed on your computer, or scan its QR code. This device remembers it after that.
 			</p>
 			<form class="mt-8 space-y-3" onSubmit={submit}>
-				<label class="block text-sm font-medium" for="link">
+				<label class="block text-meta font-medium" for="link">
 					Or paste the view link
 				</label>
 				<input
 					id="link"
-					class="w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 font-mono text-sm outline-none transition-colors focus:border-lamp"
+					class="w-full rounded-small border border-line bg-surface px-3 py-2.5 font-mono text-mono outline-none transition-colors focus:border-ink"
 					value={value}
 					autocomplete="off"
 					spellcheck={false}
@@ -64,10 +65,10 @@ function Pairing({ onPaired }: { onPaired: (secret: string) => void }) {
 						setInvalid(false);
 					}}
 				/>
-				{invalid && <p class="text-sm text-halt">That doesn't look like a view link.</p>}
+				{invalid && <p class="text-meta text-halt">That doesn't look like a view link.</p>}
 				<button
 					type="submit"
-					class="w-full rounded-xl bg-ink px-4 py-2.5 font-medium text-bg transition-opacity hover:opacity-90"
+					class="w-full rounded-small bg-ink px-4 py-2.5 font-medium text-bg transition-opacity hover:opacity-90"
 				>
 					Open dashboard
 				</button>
@@ -79,7 +80,7 @@ function Pairing({ onPaired }: { onPaired: (secret: string) => void }) {
 function Logo() {
 	return (
 		<div class="flex items-center gap-2.5">
-			<svg viewBox="0 0 64 64" class="size-7" aria-hidden="true">
+			<svg viewBox="0 0 64 64" class="size-[26px]" aria-hidden="true">
 				<rect width="64" height="64" rx="14" class="fill-ink" />
 				<path
 					d="M22 54V24a6 6 0 0 1 6-6h12"
@@ -98,7 +99,7 @@ function Logo() {
 					opacity=".8"
 				/>
 			</svg>
-			<span class="font-semibold tracking-tight">Lookout</span>
+			<span class="font-semibold tracking-[-0.01em]">Lookout</span>
 		</div>
 	);
 }
@@ -121,28 +122,30 @@ function MachineGroup({
 	const offline = silentFor > OFFLINE_AFTER_MS;
 	if (all.length > 0 && sessions.length === 0) return null;
 	return (
-		<section class={`space-y-2.5 transition-opacity ${offline ? "opacity-55" : ""}`}>
-			<h2 class="flex items-baseline justify-between gap-3 px-1 text-sm">
-				<span class="truncate font-medium text-muted">{machine.snapshot.machine.name}</span>
+		<section>
+			<h2 class="flex items-baseline justify-between gap-3 px-0.5 pb-1.5 text-meta text-muted">
+				<span class="truncate font-medium">{machine.snapshot.machine.name}</span>
 				{offline && (
-					<span class="shrink-0 text-muted">
-						Offline · last seen {formatDuration(silentFor)} ago
-					</span>
+					<span class="shrink-0">Offline · last seen {formatDuration(silentFor)} ago</span>
 				)}
 			</h2>
 			{sessions.length === 0 ? (
-				<p class="rounded-2xl border border-dashed border-line px-4 py-6 text-center text-sm text-muted">
+				<p class="border-y border-line py-6 text-center text-meta text-muted">
 					No Claude Code sessions are open.
 				</p>
 			) : (
-				sessions.map((s) => (
-					<SessionCard
-						key={s.id}
-						machine={machine.id}
-						session={s}
-						now={now + machine.clockOffset}
-					/>
-				))
+				<ul
+					class={`divide-y divide-line border-y border-line transition-opacity ${offline ? "opacity-60" : ""}`}
+				>
+					{sessions.map((s) => (
+						<SessionCard
+							key={s.id}
+							machine={machine.id}
+							session={s}
+							now={now + machine.clockOffset}
+						/>
+					))}
+				</ul>
 			)}
 		</section>
 	);
@@ -158,12 +161,12 @@ function NotifyPrompt({ state, enable }: { state: PushState; enable: () => void 
 	const text = message[state];
 	if (!text) return null;
 	return (
-		<div class="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-4 py-3.5">
-			<p class="min-w-0 flex-1 text-sm text-muted">{text}</p>
+		<div class="mt-10 flex flex-wrap items-center justify-between gap-3 rounded-box border border-line bg-surface px-4 py-3.5">
+			<p class="min-w-0 flex-1 text-[0.875rem] text-muted">{text}</p>
 			{state === "off" && (
 				<button
 					type="button"
-					class="shrink-0 rounded-xl bg-ink px-3.5 py-2 text-sm font-medium text-bg transition-opacity hover:opacity-90"
+					class="shrink-0 rounded-small bg-ink px-3.5 py-2 text-[0.875rem] font-medium text-bg transition-opacity hover:opacity-90"
 					onClick={enable}
 				>
 					Turn on
@@ -178,7 +181,7 @@ function NotifyFooter({ state, disable }: { state: PushState; disable: () => voi
 	return (
 		<button
 			type="button"
-			class="text-sm text-muted underline-offset-4 transition-colors hover:text-ink hover:underline"
+			class="text-meta text-muted underline-offset-4 transition-colors hover:text-ink hover:underline"
 			onClick={disable}
 		>
 			Turn off notifications
@@ -228,12 +231,12 @@ function Dashboard({ secret, onForget }: { secret: string; onForget: () => void 
 	}
 
 	return (
-		<main class="mx-auto max-w-2xl px-4 pt-[max(1.25rem,env(safe-area-inset-top))] pb-10">
+		<main class="mx-auto max-w-[680px] px-4 pt-[max(1.25rem,env(safe-area-inset-top))] pb-10 lg:pt-10">
 			<header class="flex items-center justify-between gap-3">
 				<Logo />
-				<span class="flex items-center gap-2 text-sm text-muted" role="status">
+				<span class="flex items-center gap-2 text-meta text-muted" role="status">
 					<span
-						class={`size-2 rounded-full ${connection === "live" ? "bg-done" : connection === "denied" ? "bg-halt" : "bg-idle pulse"}`}
+						class={`size-2 rounded-full ${connection === "live" ? "bg-done" : connection === "denied" ? "bg-halt" : "breathe border-2 border-idle"}`}
 						aria-hidden="true"
 					/>
 					{CONNECTION_LABELS[connection]}
@@ -241,25 +244,29 @@ function Dashboard({ secret, onForget }: { secret: string; onForget: () => void 
 			</header>
 
 			{connection === "retrying" && list.length > 0 && (
-				<p class="mt-5 rounded-2xl bg-surface-2 px-4 py-3 text-sm text-muted">
-					Can't reach your computer right now. Showing what it last reported; this updates by itself
-					once it's back.
-				</p>
+				<div class="mt-6">
+					<Strip tone="muted">
+						Can't reach your computer right now. Showing what it last reported; this updates by
+						itself once it's back.
+					</Strip>
+				</div>
 			)}
 
-			<div class="mt-6 space-y-8">
+			<div class="mt-7 space-y-8">
 				{connection !== "denied" && waiting > 0 && (
-					<section class="space-y-2.5">
-						<h2 class="px-1 text-sm font-medium text-lamp">Needs you · {waiting}</h2>
-						{needsYou.map(({ machine, session }) => (
-							<SessionCard
-								key={session.id}
-								machine={machine.id}
-								machineName={list.length > 1 ? machine.snapshot.machine.name : undefined}
-								session={session}
-								now={now + machine.clockOffset}
-							/>
-						))}
+					<section>
+						<h2 class="px-0.5 pb-1.5 text-meta font-medium text-lamp">Needs you · {waiting}</h2>
+						<ul class="divide-y divide-line border-y border-line">
+							{needsYou.map(({ machine, session }) => (
+								<SessionCard
+									key={session.id}
+									machine={machine.id}
+									machineName={list.length > 1 ? machine.snapshot.machine.name : undefined}
+									session={session}
+									now={now + machine.clockOffset}
+								/>
+							))}
+						</ul>
 					</section>
 				)}
 				{connection === "denied" ? (
@@ -267,7 +274,7 @@ function Dashboard({ secret, onForget }: { secret: string; onForget: () => void 
 						The view link was changed on your computer. Open the new one to keep watching.
 					</p>
 				) : list.length === 0 ? (
-					<p class="rounded-2xl border border-dashed border-line px-4 py-10 text-center text-muted">
+					<p class="border-y border-line py-10 text-center text-muted">
 						{connection === "live"
 							? "Nothing to show yet. Sessions appear here as soon as Claude Code runs."
 							: "Waiting for your computer…"}
@@ -291,7 +298,7 @@ function Dashboard({ secret, onForget }: { secret: string; onForget: () => void 
 				<NotifyFooter state={push.state} disable={() => void push.disable()} />
 				<button
 					type="button"
-					class="text-sm text-muted underline-offset-4 transition-colors hover:text-ink hover:underline"
+					class="text-meta text-muted underline-offset-4 transition-colors hover:text-ink hover:underline"
 					onClick={onForget}
 				>
 					Forget this device

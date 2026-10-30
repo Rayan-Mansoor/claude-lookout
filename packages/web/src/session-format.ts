@@ -18,17 +18,20 @@ import {
 /** A step running at least this long is called out, so a stuck one stands out. */
 const LONG_STEP_MS = 60_000;
 
-/** Colour family for each state, shared by the list and the session screen. */
-export const TONES: Record<SessionState, { dot: string; badge: string; card: string }> = {
-	permission: { dot: "bg-lamp", badge: "bg-lamp-soft text-lamp", card: "border-lamp/60" },
-	question: { dot: "bg-lamp", badge: "bg-lamp-soft text-lamp", card: "border-lamp/60" },
-	plan: { dot: "bg-lamp", badge: "bg-lamp-soft text-lamp", card: "border-lamp/60" },
-	working: { dot: "bg-working pulse", badge: "bg-working-soft text-working", card: "border-line" },
-	background: { dot: "bg-working", badge: "bg-working-soft text-working", card: "border-line" },
-	finished: { dot: "bg-done", badge: "bg-done-soft text-done", card: "border-line" },
-	interrupted: { dot: "bg-halt", badge: "bg-halt-soft text-halt", card: "border-line" },
-	ready: { dot: "bg-idle", badge: "bg-idle-soft text-idle", card: "border-line" },
-	gone: { dot: "bg-idle", badge: "bg-idle-soft text-idle", card: "border-line opacity-60" },
+/**
+ * How each state lights a session's lamp, and the colour its name is written in. Colour, fill and
+ * motion differ together, so states tell apart without relying on colour alone.
+ */
+export const TONES: Record<SessionState, { lamp: string; text: string }> = {
+	permission: { lamp: "bg-lamp ring-4 ring-lamp/25", text: "text-lamp" },
+	question: { lamp: "bg-lamp ring-4 ring-lamp/25", text: "text-lamp" },
+	plan: { lamp: "bg-lamp ring-4 ring-lamp/25", text: "text-lamp" },
+	working: { lamp: "bg-working breathe", text: "text-working" },
+	background: { lamp: "border-2 border-working", text: "text-working" },
+	finished: { lamp: "bg-done", text: "text-done" },
+	interrupted: { lamp: "bg-halt", text: "text-halt" },
+	ready: { lamp: "border-2 border-idle", text: "text-muted" },
+	gone: { lamp: "border-2 border-idle", text: "text-muted" },
 };
 
 /** Order on screen: whatever needs you first, then what's running, then the rest. */

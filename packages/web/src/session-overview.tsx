@@ -20,11 +20,18 @@ import {
 	runningStep,
 	sessionProject,
 	sessionTitle,
-	stateLabel,
-	stateTone,
 	text,
 } from "./session-format.ts";
-import { Clamp, Digest, Link, NeedsYou, Panel, ScreenHeader, Section } from "./session-parts.tsx";
+import {
+	Clamp,
+	Digest,
+	Link,
+	NeedsYou,
+	ScreenHeader,
+	Section,
+	StateLine,
+	Strip,
+} from "./session-parts.tsx";
 
 /** A reply this long is shown whole on the overview; a longer one opens on the conversation screen. */
 const REPLY_LINES = 25;
@@ -54,21 +61,22 @@ function Alerts({
 	return (
 		<div class="space-y-2">
 			{offlineFor !== undefined && (
-				<p class="rounded-2xl bg-surface-2 px-4 py-3 text-sm text-muted">
+				<Strip tone="muted">
 					{machineName} is offline · last seen {formatDuration(offlineFor)} ago. This is the last
 					known state.
-				</p>
+				</Strip>
 			)}
 			{error && (
-				<p class="rounded-2xl bg-halt-soft px-4 py-3 text-sm text-halt">
-					<span class="font-medium">Run failed</span> · {error}
-				</p>
+				<Strip tone="halt">
+					<span class="font-semibold">Run failed</span> · {error}
+				</Strip>
 			)}
-			{git.map((alert) => (
-				<p key={alert} class="rounded-2xl bg-lamp-soft px-4 py-3 text-sm font-medium text-lamp">
-					{alert}
-				</p>
-			))}
+			{git.length > 0 && (
+				<Strip tone="lamp">
+					<span class="font-semibold">{git[0]}</span>
+					{git.slice(1).map((alert) => ` · ${alert}`)}
+				</Strip>
+			)}
 		</div>
 	);
 }
@@ -82,38 +90,32 @@ function ClaudeSays({ session, conversation }: { session: SessionView; conversat
 	const update = text(f.narration);
 	if (ended && reply) {
 		return (
-			<Panel>
-				<Section title="Claude's reply">
-					<Clamp lines={REPLY_LINES} more={{ href: conversation, label: "Read full reply" }}>
-						<Markdown source={reply} />
-					</Clamp>
-					{session.state === "background" && (
-						<p class="text-sm text-muted">Claude carries on once its background tasks report.</p>
-					)}
-				</Section>
-			</Panel>
+			<Section title="Claude's reply">
+				<Clamp lines={REPLY_LINES} more={{ href: conversation, label: "Read full reply" }}>
+					<Markdown source={reply} />
+				</Clamp>
+				{session.state === "background" && (
+					<p class="text-meta text-muted">Claude carries on once its background tasks report.</p>
+				)}
+			</Section>
 		);
 	}
 	if (update) {
 		return (
-			<Panel>
-				<Section title="Claude's latest update">
-					<Clamp lines={UPDATE_LINES} more={{ href: conversation, label: "Read all" }}>
-						<Markdown source={update} />
-					</Clamp>
-				</Section>
-			</Panel>
+			<Section title="Claude's latest update">
+				<Clamp lines={UPDATE_LINES} more={{ href: conversation, label: "Read all" }}>
+					<Markdown source={update} />
+				</Clamp>
+			</Section>
 		);
 	}
 	if (reply) {
 		return (
-			<Panel>
-				<Section title="Claude's last reply">
-					<Clamp lines={REPLY_LINES} more={{ href: conversation, label: "Read full reply" }}>
-						<Markdown source={reply} />
-					</Clamp>
-				</Section>
-			</Panel>
+			<Section title="Claude's last reply">
+				<Clamp lines={REPLY_LINES} more={{ href: conversation, label: "Read full reply" }}>
+					<Markdown source={reply} />
+				</Clamp>
+			</Section>
 		);
 	}
 	return null;
@@ -123,30 +125,28 @@ function Progress({ session }: { session: SessionView }) {
 	const tasks = session.fields.tasks as TaskProgress | undefined;
 	const subagents = (session.fields.subagents as Subagent[] | undefined) ?? [];
 	if (session.state === "gone" || (!tasks?.total && !subagents.length)) return null;
+	const helpers = subagents.length > 0 && (
+		<p class="text-meta text-muted">{plural(subagents.length, "subagent")} running</p>
+	);
+	if (!tasks?.total) return helpers;
 	return (
-		<Panel>
-			<Section title="Progress">
-				{tasks && tasks.total > 0 && (
-					<>
-						<div class="flex items-center gap-3">
-							<div class="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
-								<div
-									class="h-full rounded-full bg-working transition-[width] duration-300"
-									style={{ width: `${(tasks.done / tasks.total) * 100}%` }}
-								/>
-							</div>
-							<span class="text-sm tabular-nums text-muted">
-								{tasks.done} of {tasks.total} tasks
-							</span>
-						</div>
-						{tasks.current && <p class="text-sm">{tasks.current}</p>}
-					</>
-				)}
-				{subagents.length > 0 && (
-					<p class="text-sm text-muted">{plural(subagents.length, "subagent")} running</p>
-				)}
-			</Section>
-		</Panel>
+		<Section
+			title="Tasks"
+			aside={
+				<span class="font-mono">
+					{tasks.done} of {tasks.total}
+				</span>
+			}
+		>
+			<div class="h-1.5 overflow-hidden rounded-full bg-surface-2">
+				<div
+					class="h-full rounded-full bg-working transition-[width] duration-300"
+					style={{ width: `${(tasks.done / tasks.total) * 100}%` }}
+				/>
+			</div>
+			{tasks.current && <p class="text-[0.875rem]">{tasks.current}</p>}
+			{helpers}
+		</Section>
 	);
 }
 
@@ -168,17 +168,17 @@ function SectionRows({
 		["details", detailsDigest(session)],
 	];
 	return (
-		<nav class="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
+		<nav class="divide-y divide-line overflow-hidden rounded-box border border-line bg-surface">
 			{digests.map(
 				([section, digest]) =>
 					digest && (
 						<Link
 							key={section}
 							href={sessionPath(machineId, session.id, section)}
-							class="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-2"
+							class="flex items-center gap-3 px-3.5 py-3 transition-colors hover:bg-surface-2"
 						>
 							<span class="shrink-0 font-medium">{SECTION_LABELS[section]}</span>
-							<span class="min-w-0 flex-1 truncate text-right text-sm text-muted tabular-nums">
+							<span class="min-w-0 flex-1 truncate text-right text-meta text-muted">
 								<Digest parts={digest} />
 							</span>
 							<svg viewBox="0 0 20 20" class="size-4 shrink-0 text-muted" aria-hidden="true">
@@ -196,7 +196,7 @@ function SectionRows({
 	);
 }
 
-/** One session at a glance: what needs you, what's wrong, what Claude said, and where to look next. */
+/** One session at a glance: what's wrong, what needs you, what Claude said, and where to look next. */
 export function SessionOverview({
 	machineId,
 	machineName,
@@ -210,7 +210,7 @@ export function SessionOverview({
 	now: number;
 	offlineFor?: number | undefined;
 }) {
-	const tone = stateTone(session);
+	const blocked = BLOCKED_STATES.includes(session.state);
 	const step = session.state === "working" ? runningStep(session) : undefined;
 	const prompt = text(session.fields.prompt);
 
@@ -221,28 +221,23 @@ export function SessionOverview({
 				subtitle={[sessionProject(session), machineName].filter(Boolean).join(" · ")}
 				backLabel="Back to all sessions"
 			/>
-			<div class="mt-6 space-y-4">
+			<div class="mt-6 space-y-6">
 				<Alerts session={session} machineName={machineName} offlineFor={offlineFor} />
-				<NeedsYou session={session} />
-				<div class="flex flex-wrap items-center gap-x-3 gap-y-1 px-1">
-					<span
-						class={`flex items-center gap-2 rounded-full px-3 py-1 text-sm font-medium ${tone.badge}`}
-					>
-						<span class={`size-2 rounded-full ${tone.dot}`} aria-hidden="true" />
-						{stateLabel(session)}
-					</span>
-					<span class="text-sm text-muted">for {formatDuration(now - session.since)}</span>
-					{step && (
-						<p class="w-full break-words font-mono text-[13px]">{describeStep(step, now)}</p>
-					)}
-				</div>
+				{blocked ? (
+					<NeedsYou session={session} now={now} />
+				) : (
+					<div class="space-y-1.5">
+						<StateLine session={session} now={now} />
+						{step && <p class="break-words font-mono text-mono">{describeStep(step, now)}</p>}
+					</div>
+				)}
 				<ClaudeSays
 					session={session}
 					conversation={sessionPath(machineId, session.id, "conversation")}
 				/>
 				<Progress session={session} />
 				{prompt && (
-					<p class="line-clamp-2 px-1 text-sm text-muted">
+					<p class="line-clamp-2 text-[0.875rem] text-muted">
 						<span class="font-medium text-ink">You asked</span> · {prompt}
 					</p>
 				)}

@@ -9,11 +9,7 @@ import { useMemo } from "preact/hooks";
  */
 export function Markdown({ source }: { source: string }) {
 	const tree = useMemo(() => blocks(lexer(source, { gfm: true })), [source]);
-	return (
-		<div class="space-y-3 break-words rounded-xl bg-surface-2 px-3.5 py-3 text-sm leading-relaxed">
-			{tree}
-		</div>
-	);
+	return <div class="max-w-[68ch] space-y-3 break-words leading-relaxed">{tree}</div>;
 }
 
 /** Markdown inside a line of its own, such as a question. */
@@ -22,7 +18,14 @@ export function InlineMarkdown({ source }: { source: string }) {
 	return <>{tree}</>;
 }
 
-const HEADING_SIZES = ["text-base", "text-base", "text-sm", "text-sm", "text-sm", "text-sm"];
+const HEADING_SIZES = [
+	"text-base",
+	"text-base",
+	"text-body",
+	"text-body",
+	"text-body",
+	"text-body",
+];
 
 function blocks(tokens: Token[]): ComponentChildren[] {
 	return tokens.map((token, i) => block(token, i));
@@ -62,7 +65,7 @@ function block(any: Token, key: number): ComponentChildren {
 			return <hr key={key} class="border-line" />;
 		case "html":
 			return (
-				<p key={key} class="whitespace-pre-wrap font-mono text-[13px]">
+				<p key={key} class="whitespace-pre-wrap font-mono text-mono">
 					{token.text}
 				</p>
 			);
@@ -79,13 +82,13 @@ function block(any: Token, key: number): ComponentChildren {
 
 export function CodeBlock({ code, lang }: { code: string; lang?: string | undefined }) {
 	return (
-		<figure class="overflow-hidden rounded-lg border border-line bg-surface">
+		<figure class="overflow-hidden rounded-small border border-line bg-surface">
 			{lang && (
-				<figcaption class="border-b border-line px-3 py-1 font-mono text-xs text-muted">
+				<figcaption class="border-b border-line px-3 py-1 font-mono text-meta text-muted">
 					{lang}
 				</figcaption>
 			)}
-			<pre class="whitespace-pre-wrap break-all px-3 py-2 font-mono text-[13px] leading-relaxed">
+			<pre class="whitespace-pre-wrap break-all px-3 py-2 font-mono text-mono leading-relaxed">
 				<code>{code}</code>
 			</pre>
 		</figure>
@@ -134,7 +137,7 @@ function Table({ table }: { table: Tokens.Table }) {
 	};
 	return (
 		<div class="overflow-x-auto">
-			<table class="min-w-full border-collapse bg-surface text-[13px]">
+			<table class="min-w-full border-collapse bg-surface text-meta">
 				<thead>
 					<tr>{table.header.map(cell)}</tr>
 				</thead>
@@ -169,7 +172,7 @@ function inline(tokens: Token[]): ComponentChildren[] {
 				return <del key={key}>{inline(token.tokens)}</del>;
 			case "codespan":
 				return (
-					<code key={key} class="rounded bg-surface px-1 py-0.5 font-mono text-[13px]">
+					<code key={key} class="rounded bg-surface-2 px-1 py-0.5 font-mono text-[0.85em]">
 						{token.text}
 					</code>
 				);
@@ -186,7 +189,7 @@ function inline(tokens: Token[]): ComponentChildren[] {
 				);
 			case "html":
 				return (
-					<code key={key} class="font-mono text-[13px]">
+					<code key={key} class="font-mono text-[0.85em]">
 						{token.text}
 					</code>
 				);
@@ -228,7 +231,7 @@ function Link({
 		<span title={title ?? undefined}>
 			{text}
 			{shown !== href && (
-				<code class="ml-1 font-mono text-[13px] text-muted">{text ? `(${href})` : href}</code>
+				<code class="ml-1 font-mono text-[0.85em] text-muted">{text ? `(${href})` : href}</code>
 			)}
 		</span>
 	);
