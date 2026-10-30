@@ -1,9 +1,13 @@
+import { execFileSync } from "node:child_process";
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { HookInput, WorkingChanges } from "@claude-lookout/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitView, SessionGit } from "./activity.ts";
 import { Agent } from "./agent.ts";
 import { defaultConfig } from "./config.ts";
-import { type ProgressGit, ProgressTracker } from "./progress.ts";
+import { type ProgressGit, ProgressTracker, realGit } from "./progress.ts";
 
 const CHANGES: WorkingChanges = {
 	files: [{ path: "src/a.ts", added: 3, removed: 1, status: "changed" }],
@@ -32,6 +36,8 @@ function setup() {
 		{ ...defaultConfig(), machine: { id: "m1", name: "Studio" } },
 		{ gitBranch: () => "main" },
 	);
+	const changed: (() => void)[] = [];
+	const stopped = vi.fn();
 	const read = vi.fn(
 		async (sessions: SessionGit[]) =>
 			new Map(sessions.filter((s) => !s.gone).map((s) => [s.id, viewOf(s)])),
@@ -42,13 +48,19 @@ function setup() {
 				cwd.startsWith("/w/api") ? "/w/api" : undefined,
 		),
 		readChanges: vi.fn(async () => CHANGES),
-		openRepo: vi.fn(() => ({ read })),
+		openRepo: vi.fn(() => ({
+			read,
+			watch: (c: () => void) => {
+				changed.push(c);
+				return stopped;
+			},
+		})),
 	} satisfies ProgressGit;
 	const tracker = new ProgressTracker(agent, git, 2000);
 	tracker.start();
 	const send = (session: string, input: Partial<HookInput>, cwd = "/w/api") =>
 		agent.handle({ input: { session_id: session, cwd, ...input } as HookInput, at: Date.now() });
-	return { agent, git, read, send };
+	return { agent, git, read, send, changed, stopped };
 }
 
 beforeEach(() => vi.useFakeTimers());
@@ -129,11 +141,58 @@ describe("ProgressTracker", () => {
 		expect(agent.sessions.get("s2")?.fields.changes).toEqual(CHANGES);
 	});
 
+	it("reads again when git's files change outside Claude", async () => {
+		const { read, send, changed } = setup();
+		send("s1", { hook_event_name: "SessionStart", source: "startup" });
+		await vi.advanceTimersByTimeAsync(2000);
+		expect(read).toHaveBeenCalledTimes(1);
+		for (const c of changed) c();
+		await vi.advanceTimersByTimeAsync(2000);
+		expect(read).toHaveBeenCalledTimes(2);
+	});
+
+	it("stops watching once the last session in a repository closes", async () => {
+		const { send, stopped } = setup();
+		send("s1", { hook_event_name: "SessionStart", source: "startup" });
+		await vi.advanceTimersByTimeAsync(2000);
+		send("s1", { hook_event_name: "SessionEnd" });
+		await vi.advanceTimersByTimeAsync(2000);
+		expect(stopped).toHaveBeenCalledTimes(1);
+	});
+
 	it("leaves sessions outside git alone", async () => {
 		const { agent, git, send } = setup();
 		send("s1", { hook_event_name: "Stop" }, "/tmp/notes");
 		await vi.advanceTimersByTimeAsync(3000);
 		expect(git.readChanges).not.toHaveBeenCalled();
 		expect(agent.sessions.get("s1")?.fields.changes).toBeUndefined();
+	});
+});
+
+describe("watching a repository", () => {
+	it("watches the reflog folder git only creates with the first commit", async () => {
+		vi.useRealTimers();
+		const dir = mkdtempSync(join(tmpdir(), "lookout-watch-"));
+		const git = (...args: string[]) =>
+			execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd: dir });
+		git("init", "-q");
+		let changes = 0;
+		const stop = realGit.openRepo(dir).watch(() => changes++);
+		const settle = () => new Promise((resolve) => setTimeout(resolve, 300));
+		try {
+			await settle();
+			writeFileSync(join(dir, "a"), "a");
+			git("add", "a");
+			git("commit", "-qm", "first");
+			await settle();
+			// Only the reflog changes, as when git records a ref update elsewhere.
+			changes = 0;
+			appendFileSync(join(dir, ".git", "logs", "HEAD"), "\n");
+			await settle();
+			expect(changes).toBeGreaterThan(0);
+		} finally {
+			stop();
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });

@@ -405,12 +405,17 @@ export class RepoGit {
 		this.dirs = git.gitDirs(root);
 	}
 
+	/** Where to look for changes, once the repository's folders are known. */
+	gitDirs(): Promise<git.GitDirs | undefined> {
+		// Asked again while git can't tell, so one failed read doesn't stop tracking for good.
+		this.dirs = this.dirs.then((dirs) => dirs ?? git.gitDirs(this.root));
+		return this.dirs;
+	}
+
 	/** Read the repository and work out what each open session is shown. */
 	async read(sessions: SessionGit[], now: number): Promise<Map<string, GitView>> {
 		const views = new Map<string, GitView>();
-		// Asked again while git can't tell, so one failed read doesn't stop tracking for good.
-		this.dirs = this.dirs.then((dirs) => dirs ?? git.gitDirs(this.root));
-		const dirs = await this.dirs;
+		const dirs = await this.gitDirs();
 		const open = sessions.filter((s) => !s.gone);
 		if (!dirs || open.length === 0) return views;
 		const since = Math.min(...sessions.map((s) => s.since));
