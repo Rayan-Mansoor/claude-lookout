@@ -23,6 +23,7 @@ export const TONES: Record<SessionState, { dot: string; badge: string; card: str
 	question: { dot: "bg-lamp", badge: "bg-lamp-soft text-lamp", card: "border-lamp/60" },
 	plan: { dot: "bg-lamp", badge: "bg-lamp-soft text-lamp", card: "border-lamp/60" },
 	working: { dot: "bg-working pulse", badge: "bg-working-soft text-working", card: "border-line" },
+	background: { dot: "bg-working", badge: "bg-working-soft text-working", card: "border-line" },
 	finished: { dot: "bg-done", badge: "bg-done-soft text-done", card: "border-line" },
 	interrupted: { dot: "bg-halt", badge: "bg-halt-soft text-halt", card: "border-line" },
 	ready: { dot: "bg-idle", badge: "bg-idle-soft text-idle", card: "border-line" },
@@ -35,6 +36,7 @@ export const STATE_ORDER: SessionState[] = [
 	"question",
 	"plan",
 	"working",
+	"background",
 	"finished",
 	"interrupted",
 	"ready",
@@ -246,6 +248,7 @@ export function summarize(session: SessionView, now: number): string | undefined
 			return plainLine((f.questions as Question[] | undefined)?.[0]?.question);
 		case "plan":
 			return "Plan ready for review";
+		case "background":
 		case "finished":
 			return text(f.error) ?? plainLine(text(f.lastMessage));
 		case "permission": {

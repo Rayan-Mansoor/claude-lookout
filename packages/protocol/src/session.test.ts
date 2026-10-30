@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FieldContext, Question } from "./fields.ts";
 import type { HookInput } from "./hooks.ts";
-import { reduce, type Session } from "./session.ts";
+import { reduce, type Session, settleBackground } from "./session.ts";
 import { buildSnapshot } from "./snapshot.ts";
 
 const ctx: FieldContext = { gitBranch: () => "main" };
@@ -269,6 +269,68 @@ describe("session state", () => {
 		expect(run([{ hook_event_name: "SessionEnd", reason: "prompt_input_exit" }]).state).toBe(
 			"gone",
 		);
+	});
+});
+
+describe("background tasks", () => {
+	const started = (id: string, partial: Partial<HookInput> = {}): Partial<HookInput> => ({
+		hook_event_name: "PostToolUse",
+		tool_name: "Bash",
+		tool_input: { command: "npm test", run_in_background: true },
+		tool_use_id: id,
+		...partial,
+	});
+	const stop: Partial<HookInput> = {
+		hook_event_name: "Stop",
+		last_assistant_message: "Tests running",
+	};
+
+	it("waits on tasks left running instead of finishing", () => {
+		const s = run([{ hook_event_name: "UserPromptSubmit", prompt: "test" }, started("t1"), stop]);
+		expect(s.state).toBe("background");
+		expect(s.background).toEqual(["t1"]);
+		expect(run([{ hook_event_name: "UserPromptSubmit" }, stop]).state).toBe("finished");
+	});
+
+	it("counts tools that always run in the background but not a subagent's tasks", () => {
+		const monitor = started("m1", { tool_name: "Monitor", tool_input: {} });
+		expect(run([monitor, stop]).state).toBe("background");
+		expect(run([started("a1", { agent_id: "sub" }), stop]).state).toBe("finished");
+	});
+
+	it("works again once the last task reports, and finishes after", () => {
+		const waiting = run([started("t1"), started("t2"), stop]);
+		const one = settleBackground(waiting, ["t1"], 5000);
+		expect(one).toMatchObject({ state: "background", background: ["t2"] });
+		const both = settleBackground(one, ["t2"], 6000);
+		expect(both).toMatchObject({ state: "working", since: 6000 });
+		expect(both.background).toBeUndefined();
+		const done = reduce(both, { input: { session_id: "s1", ...stop } as HookInput, at: 7000 }, ctx);
+		expect(done.state).toBe("finished");
+	});
+
+	it("finishes when the report is read only after Claude's follow-up run ended", () => {
+		const waiting = run([started("t1"), stop]);
+		const late = settleBackground(waiting, ["t1"], waiting.since - 1);
+		expect(late).toMatchObject({ state: "finished", since: waiting.since });
+	});
+
+	it("finishes when Claude stopped the last task, since a stop doesn't start Claude again", () => {
+		const waiting = run([started("t1"), stop]);
+		const stopped = settleBackground(waiting, ["t1"], waiting.since + 1, false);
+		expect(stopped).toMatchObject({ state: "finished", since: waiting.since });
+		expect(stopped.background).toBeUndefined();
+	});
+
+	it("ignores reports of tasks it isn't waiting on and forgets tasks after /clear", () => {
+		const waiting = run([started("t1"), stop]);
+		expect(settleBackground(waiting, ["other"], 9000)).toBe(waiting);
+		const cleared = run([
+			started("t1"),
+			{ hook_event_name: "SessionStart", source: "clear" },
+			stop,
+		]);
+		expect(cleared.state).toBe("finished");
 	});
 });
 

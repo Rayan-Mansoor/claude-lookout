@@ -18,7 +18,7 @@ import type { Request } from "./ipc.ts";
 import { acquireLock, releaseLock } from "./lock.ts";
 import { startNotifier } from "./notifier.ts";
 import { ProgressTracker } from "./progress.ts";
-import { followTranscripts, TranscriptReader } from "./transcript.ts";
+import { followTranscripts, recoverTasks, TranscriptReader } from "./transcript.ts";
 import { directPublisher } from "./transport/direct.ts";
 import { type Publisher, throttled } from "./transport/publisher.ts";
 import { relayPublisher } from "./transport/relay.ts";
@@ -183,6 +183,7 @@ export async function runDaemon(): Promise<void> {
 	}, TICK_MS);
 
 	const transcripts = new TranscriptReader();
+	void recoverTasks(agent, transcripts);
 	setInterval(() => {
 		for (const session of checkSessions(agent.sessions.values(), Date.now())) agent.update(session);
 		followTranscripts(agent, transcripts);

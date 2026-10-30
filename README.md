@@ -22,16 +22,17 @@ If you share a Claude account, or you just want to know when Claude needs you wi
 
 Every open Claude Code session shows one of these states, with how long it has been in it:
 
-| State            | Meaning                                             |
-| ---------------- | --------------------------------------------------- |
-| Ready            | Open, nothing asked yet                             |
-| Working          | Claude is running                                   |
-| Needs permission | Claude is waiting for you to allow a tool           |
-| Asking you       | Claude asked a question and waits for your answer   |
-| Plan to approve  | Claude finished a plan and waits for your approval  |
-| Finished         | The run ended and Claude waits for your next prompt |
-| Interrupted      | The run was stopped before it finished              |
-| Closed           | The session ended (kept on screen for 30 minutes)   |
+| State                 | Meaning                                                                        |
+| --------------------- | ------------------------------------------------------------------------------ |
+| Ready                 | Open, nothing asked yet                                                        |
+| Working               | Claude is running                                                              |
+| Running in background | The run ended, but Claude continues by itself once its background tasks report |
+| Needs permission      | Claude is waiting for you to allow a tool                                      |
+| Asking you            | Claude asked a question and waits for your answer                              |
+| Plan to approve       | Claude finished a plan and waits for your approval                             |
+| Finished              | The run ended and Claude waits for your next prompt                            |
+| Interrupted           | The run was stopped before it finished                                         |
+| Closed                | The session ended (kept on screen for 30 minutes)                              |
 
 Alongside the state, each session carries fields grouped into levels. You choose the highest level that leaves your machine; the default is 2.
 

@@ -482,7 +482,8 @@ export function SessionScreen({
 	const prompt = text(f.prompt);
 	const lastMessage = text(f.lastMessage);
 	// Once the run ends, Claude's last message says the same thing in full.
-	const narration = session.state === "finished" ? undefined : text(f.narration);
+	const narration =
+		session.state === "finished" || session.state === "background" ? undefined : text(f.narration);
 	const step = runningStep(session);
 
 	return (

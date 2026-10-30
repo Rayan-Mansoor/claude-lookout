@@ -1,11 +1,12 @@
 import { applyFields, type FieldContext } from "./fields.ts";
-import { type HookEvent, type HookInput, str } from "./hooks.ts";
+import { type HookEvent, type HookInput, record, str } from "./hooks.ts";
 
 /**
  * Where a session stands, from the viewer's point of view.
  * - ready: open, nothing asked yet
  * - working: Claude is running
  * - permission / question / plan: blocked until you respond
+ * - background: the run ended, but Claude carries on by itself once its background tasks report
  * - finished: the run ended and Claude waits for your next prompt
  * - interrupted: the run was stopped before it finished
  * - gone: the session closed
@@ -16,6 +17,7 @@ export type SessionState =
 	| "permission"
 	| "question"
 	| "plan"
+	| "background"
 	| "finished"
 	| "interrupted"
 	| "gone";
@@ -35,6 +37,8 @@ export interface Session {
 	transcript?: string;
 	/** When Claude's shell commands ran, so git work can be credited to the session; never sent. */
 	shell?: ShellRun[];
+	/** Tool calls Claude left running in the background, by tool use id; never sent. */
+	background?: string[];
 	/** Requests waiting on you, oldest first; never sent. */
 	blocks?: Block[];
 	fields: Record<string, unknown>;
@@ -94,6 +98,20 @@ const BLOCKING_TOOLS: Record<string, SessionState> = {
 	AskUserQuestion: "question",
 	ExitPlanMode: "plan",
 };
+
+/** Tools that always run in the background and report back when they end. */
+const BACKGROUND_TOOLS = new Set(["Monitor", "Workflow"]);
+
+/** The tool use id of a call that kept running after it returned, if this event is one. */
+function startedInBackground(input: HookInput): string | undefined {
+	// A subagent's background tasks report to the subagent, not to the session.
+	if (input.hook_event_name !== "PostToolUse" || input.agent_id !== undefined) return undefined;
+	const tool = str(input.tool_name);
+	const inBackground =
+		(tool !== undefined && BACKGROUND_TOOLS.has(tool)) ||
+		record(input.tool_input).run_in_background === true;
+	return inBackground ? str(input.tool_use_id) : undefined;
+}
 
 /** The state a hook event moves a session into, or undefined to keep the current one. */
 export function nextState(input: HookInput, current: SessionState): SessionState | undefined {
@@ -210,6 +228,17 @@ export function reduce(prev: Session | undefined, event: HookEvent, ctx: FieldCo
 		? { ...prev, fields: { ...prev.fields } }
 		: { id: input.session_id, state: "ready", since: at, startedAt: at, updatedAt: at, fields: {} };
 
+	const started = startedInBackground(input);
+	if (started && !session.background?.includes(started)) {
+		session.background = [...(session.background ?? []), started];
+	}
+	if (
+		input.hook_event_name === "SessionStart" &&
+		(input.source === "startup" || input.source === "clear")
+	) {
+		delete session.background;
+	}
+
 	// Hooks run as separate processes, so one can arrive after a later one: an event from before
 	// the current state began updates details but never the state.
 	const late = prev !== undefined && at < session.since;
@@ -224,6 +253,7 @@ export function reduce(prev: Session | undefined, event: HookEvent, ctx: FieldCo
 			state = input.hook_event_name === "SessionStart" ? "ready" : "working";
 		}
 	}
+	if (state === "finished" && session.background?.length) state = "background";
 	if (state && state !== session.state) {
 		session.state = state;
 		session.since = at;
@@ -236,6 +266,29 @@ export function reduce(prev: Session | undefined, event: HookEvent, ctx: FieldCo
 	return session;
 }
 
+/**
+ * Mark background tasks as reported. Once the last one reports, Claude Code starts Claude again by
+ * itself, so a session waiting on them is working again; unless it already stopped after the last
+ * report, which happens when the report is read only after Claude's follow-up run ended.
+ * Claude stopping a task ends it without starting Claude again, so `resumes` is false then.
+ */
+export function settleBackground(
+	session: Session,
+	toolUseIds: string[],
+	at: number,
+	resumes = true,
+): Session {
+	if (!session.background) return session;
+	const pending = session.background.filter((id) => !toolUseIds.includes(id));
+	if (pending.length === session.background.length) return session;
+	const { background: _, ...settled } = session;
+	if (pending.length) return { ...settled, background: pending };
+	if (session.state !== "background") return settled;
+	return resumes && at >= session.since
+		? { ...settled, state: "working", since: at, updatedAt: at }
+		: { ...settled, state: "finished", updatedAt: Math.max(session.updatedAt, at) };
+}
+
 /** What each state is called wherever a person reads it. */
 export const STATE_LABELS: Record<SessionState, string> = {
 	ready: "Ready",
@@ -243,6 +296,7 @@ export const STATE_LABELS: Record<SessionState, string> = {
 	permission: "Needs permission",
 	question: "Asking you",
 	plan: "Plan to approve",
+	background: "Running in background",
 	finished: "Finished",
 	interrupted: "Interrupted",
 	gone: "Closed",
