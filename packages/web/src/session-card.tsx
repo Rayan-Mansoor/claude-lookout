@@ -15,10 +15,13 @@ import { Link } from "./session-parts.tsx";
 /** One row on the list: just enough to know whether to open it. */
 export function SessionCard({
 	machine,
+	machineName,
 	session,
 	now,
 }: {
 	machine: string;
+	/** Named on the card when it sits outside its computer's group. */
+	machineName?: string | undefined;
 	session: SessionView;
 	now: number;
 }) {
@@ -29,6 +32,7 @@ export function SessionCard({
 		formatDuration(now - session.since),
 		sessionProject(session),
 		text(session.fields.branch),
+		machineName,
 	]
 		.filter(Boolean)
 		.join(" · ");

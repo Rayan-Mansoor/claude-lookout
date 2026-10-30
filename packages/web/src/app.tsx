@@ -105,16 +105,21 @@ function Logo() {
 
 function MachineGroup({
 	machine,
+	shownAbove,
 	now,
 	serverNow,
 }: {
 	machine: MachineState;
+	/** Sessions already listed under "Needs you". */
+	shownAbove: Set<string>;
 	now: number;
 	serverNow: number;
 }) {
-	const sessions = [...machine.snapshot.sessions].sort(byUrgency);
+	const all = machine.snapshot.sessions;
+	const sessions = all.filter((s) => !shownAbove.has(s.id)).sort(byUrgency);
 	const silentFor = serverNow - machine.receivedAt;
 	const offline = silentFor > OFFLINE_AFTER_MS;
+	if (all.length > 0 && sessions.length === 0) return null;
 	return (
 		<section class={`space-y-2.5 transition-opacity ${offline ? "opacity-55" : ""}`}>
 			<h2 class="flex items-baseline justify-between gap-3 px-1 text-sm">
@@ -190,10 +195,17 @@ function Dashboard({ secret, onForget }: { secret: string; onForget: () => void 
 	const list = [...machines.values()].sort((a, b) =>
 		a.snapshot.machine.name.localeCompare(b.snapshot.machine.name),
 	);
-	const waiting = list
+	// What waits on you comes first, from every computer still online; an offline one can't be answered.
+	const needsYou = list
 		.filter((m) => serverNow - m.receivedAt <= OFFLINE_AFTER_MS)
-		.flatMap((m) => m.snapshot.sessions)
-		.filter((s) => BLOCKED_STATES.includes(s.state)).length;
+		.flatMap((m) =>
+			m.snapshot.sessions
+				.filter((s) => BLOCKED_STATES.includes(s.state))
+				.map((session) => ({ machine: m, session })),
+		)
+		.sort((a, b) => byUrgency(a.session, b.session));
+	const waiting = needsYou.length;
+	const shownAbove = new Set(needsYou.map((n) => n.session.id));
 
 	useEffect(() => {
 		document.title = waiting > 0 ? `(${waiting}) Lookout` : "Lookout";
@@ -235,13 +247,21 @@ function Dashboard({ secret, onForget }: { secret: string; onForget: () => void 
 				</p>
 			)}
 
-			{waiting > 0 && (
-				<p class="mt-5 rounded-2xl bg-lamp-soft px-4 py-3 text-sm font-medium text-lamp">
-					{waiting === 1 ? "1 session needs you" : `${waiting} sessions need you`}
-				</p>
-			)}
-
 			<div class="mt-6 space-y-8">
+				{connection !== "denied" && waiting > 0 && (
+					<section class="space-y-2.5">
+						<h2 class="px-1 text-sm font-medium text-lamp">Needs you · {waiting}</h2>
+						{needsYou.map(({ machine, session }) => (
+							<SessionCard
+								key={session.id}
+								machine={machine.id}
+								machineName={list.length > 1 ? machine.snapshot.machine.name : undefined}
+								session={session}
+								now={now + machine.clockOffset}
+							/>
+						))}
+					</section>
+				)}
 				{connection === "denied" ? (
 					<p class="text-muted">
 						The view link was changed on your computer. Open the new one to keep watching.
@@ -253,7 +273,15 @@ function Dashboard({ secret, onForget }: { secret: string; onForget: () => void 
 							: "Waiting for your computer…"}
 					</p>
 				) : (
-					list.map((m) => <MachineGroup key={m.id} machine={m} now={now} serverNow={serverNow} />)
+					list.map((m) => (
+						<MachineGroup
+							key={m.id}
+							machine={m}
+							shownAbove={shownAbove}
+							now={now}
+							serverNow={serverNow}
+						/>
+					))
 				)}
 			</div>
 
