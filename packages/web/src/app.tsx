@@ -206,6 +206,7 @@ function Dashboard({ secret, onForget }: { secret: string; onForget: () => void 
 			<SessionScreen
 				machine={machine}
 				sessionId={route.session}
+				section={route.section}
 				// Times come from that machine's clock, so read them against it.
 				now={now + (machine?.clockOffset ?? 0)}
 				loading={connection !== "live"}

@@ -9,6 +9,7 @@ import {
 	type SessionView,
 	STATE_LABELS,
 	type Step,
+	type Subagent,
 	type TaskProgress,
 	type ToolCall,
 	type WorkingChanges,
@@ -115,7 +116,7 @@ export function plural(count: number, one: string, many = `${one}s`): string {
 	return `${count} ${count === 1 ? one : many}`;
 }
 
-/** "7 files changed · +312 −48 · 2 commits · 1 not pushed": how far a session has got, or undefined before any change. */
+/** "7 files changed · +312 −48 · 2 commits · 1 not pushed": how far a session has got, or undefined before any change. Problems are left to `gitAlerts`. */
 export function progressLine(session: SessionView): string | undefined {
 	const f = session.fields;
 	const changes = f.changes as WorkingChanges | undefined;
@@ -132,7 +133,6 @@ export function progressLine(session: SessionView): string | undefined {
 	if (commits) parts.push(plural(commits, "commit"));
 	if (git?.earlier) parts.push(`${plural(git.earlier, "earlier commit")} rewritten`);
 	if (git?.unpushed) parts.push(`${git.unpushed} not pushed`);
-	if (git?.busy) parts.push(busyLine(git.busy));
 	return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
@@ -265,4 +265,111 @@ export function summarize(session: SessionView, now: number): string | undefined
 		default:
 			return undefined;
 	}
+}
+
+/** Problems in the repository that won't clear by themselves: a git operation left half-way, files in conflict. */
+export function gitAlerts(session: SessionView): string[] {
+	const git = session.fields.git as GitSummary | undefined;
+	const changes = session.fields.changes as WorkingChanges | undefined;
+	const alerts: string[] = [];
+	if (git?.busy) alerts.push(busyLine(git.busy));
+	const conflicts = changes?.files.filter((file) => file.status === "conflict").length ?? 0;
+	if (conflicts) alerts.push(`${plural(conflicts, "file")} in conflict`);
+	return alerts;
+}
+
+/** "Opus 5.5" for "claude-opus-5-5", or the model as Claude Code named it. */
+export function modelName(model: string | undefined): string | undefined {
+	const match = model?.match(/^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?(?:\[.*\])?$/);
+	if (!match?.[1] || !match[2]) return model;
+	const family = match[1].charAt(0).toUpperCase() + match[1].slice(1);
+	return `${family} ${match[2]}${match[3] ? `.${match[3]}` : ""}`;
+}
+
+/** One part of a section's one-line summary; a tone colours it, `glued` joins it with a space. */
+export interface DigestPart {
+	text: string;
+	tone?: "lamp" | "halt" | "done";
+	glued?: true;
+}
+
+/** What the conversation screen holds, or undefined when there is nothing to read. */
+export function conversationDigest(session: SessionView, now: number): DigestPart[] | undefined {
+	const f = session.fields;
+	const ended = session.state === "finished" || session.state === "background";
+	if (text(f.lastMessage) && ended) {
+		return [{ text: `Reply ${formatDuration(now - session.since)} ago` }];
+	}
+	if (text(f.narration)) return [{ text: "Latest update" }];
+	if (text(f.lastMessage)) return [{ text: "Last reply" }];
+	if (text(f.prompt)) return [{ text: "Your prompt" }];
+	return undefined;
+}
+
+/** "Bash 1m · 5 of 8 tasks · 14 recent steps · 1 failed" */
+export function activityDigest(session: SessionView, now: number): DigestPart[] | undefined {
+	const f = session.fields;
+	const steps = (f.steps as Step[] | undefined) ?? [];
+	const tasks = f.tasks as TaskProgress | undefined;
+	const subagents = (f.subagents as Subagent[] | undefined) ?? [];
+	if (!steps.length && !tasks?.total && !subagents.length) return undefined;
+	const parts: DigestPart[] = [];
+	const step = runningStep(session);
+	if (step) {
+		parts.push({
+			text:
+				session.state === "permission"
+					? `Waiting on ${step.tool}`
+					: `${step.tool} ${formatDuration(now - step.at)}`,
+		});
+	}
+	if (tasks?.total) parts.push({ text: `${tasks.done} of ${tasks.total} tasks` });
+	if (subagents.length) parts.push({ text: plural(subagents.length, "subagent") });
+	if (steps.length) parts.push({ text: plural(steps.length, "recent step") });
+	const failed = steps.filter((s) => s.outcome === "failed").length;
+	const denied = steps.filter((s) => s.outcome === "denied").length;
+	if (failed) parts.push({ text: `${failed} failed`, tone: "halt" });
+	if (denied) parts.push({ text: `${denied} not allowed`, tone: "halt" });
+	return parts;
+}
+
+/** "1 in conflict · 6 files changed +120 −34", or what the session edited before git knew of it. */
+export function filesDigest(session: SessionView): DigestPart[] | undefined {
+	const f = session.fields;
+	const changes = f.changes as WorkingChanges | undefined;
+	const edited = (f.edited as string[] | undefined) ?? [];
+	if (!changes)
+		return edited.length ? [{ text: `${plural(edited.length, "file")} edited` }] : undefined;
+	const parts: DigestPart[] = [];
+	const conflicts = changes.files.filter((file) => file.status === "conflict").length;
+	if (conflicts) parts.push({ text: `${conflicts} in conflict`, tone: "lamp" });
+	parts.push({ text: `${plural(changes.total, "file")} changed` });
+	if (changes.added) parts.push({ text: `+${changes.added}`, tone: "done", glued: true });
+	if (changes.removed) parts.push({ text: `−${changes.removed}`, tone: "halt", glued: true });
+	return parts;
+}
+
+/** "Rebase stopped at 2 of 5 · 3 commits · 3 not pushed", or where the branch stands. */
+export function gitDigest(session: SessionView): DigestPart[] | undefined {
+	const f = session.fields;
+	const git = f.git as GitSummary | undefined;
+	const activity = (f.gitActivity as GitEvent[] | undefined) ?? [];
+	if (!git && !activity.length) return undefined;
+	const parts: DigestPart[] = [];
+	if (git?.busy) parts.push({ text: busyLine(git.busy), tone: "lamp" });
+	if (git?.commits) parts.push({ text: plural(git.commits, "commit") });
+	if (git?.earlier) parts.push({ text: `${git.earlier} rewritten` });
+	if (git?.unpushed) parts.push({ text: `${git.unpushed} not pushed`, tone: "lamp" });
+	if (git?.upstream?.behind) parts.push({ text: `${git.upstream.behind} behind` });
+	if (parts.length) return parts;
+	if (git?.upstream && !git.upstream.ahead) return [{ text: "Up to date" }];
+	return [{ text: plural(activity.length, "git event") }];
+}
+
+/** "Opus 5.5 · Auto · main" */
+export function detailsDigest(session: SessionView): DigestPart[] {
+	const f = session.fields;
+	return [modelName(text(f.model)), label(MODE_LABELS, f.mode), text(f.branch)]
+		.filter((part): part is string => !!part)
+		.map((part) => ({ text: part }));
 }
