@@ -340,8 +340,19 @@ describe("shell commands", () => {
 			hook_event_name: event,
 			tool_name: "Bash",
 			tool_use_id: id,
-			tool_input: { command: "git commit", ...input },
+			tool_input: { command: "npm test", ...input },
 		}) as Partial<HookInput>;
+
+	it("marks commands that run git", () => {
+		const s = run([
+			bash("PreToolUse", "t1", { command: "git commit -m x && git push" }),
+			bash("PreToolUse", "t2", { command: "npm run dev" }),
+		]);
+		expect(s.shell).toEqual([
+			{ id: "t1", start: 1000, git: true },
+			{ id: "t2", start: 1001 },
+		]);
+	});
 
 	it("notes when each one starts and returns", () => {
 		const s = run([bash("PreToolUse", "t1"), bash("PostToolUse", "t1"), bash("PreToolUse", "t2")]);
@@ -351,9 +362,22 @@ describe("shell commands", () => {
 		]);
 	});
 
-	it("ends every command still running when the run stops", () => {
-		const s = run([bash("PreToolUse", "t1"), { hook_event_name: "Stop" }]);
-		expect(s.shell).toEqual([{ id: "t1", start: 1000, end: 1001 }]);
+	it("ends commands in the foreground when the run stops, but not ones in the background", () => {
+		const s = run([
+			bash("PreToolUse", "t1", { run_in_background: true }),
+			bash("PostToolUse", "t1", { run_in_background: true }),
+			bash("PreToolUse", "t2"),
+			{ hook_event_name: "Stop" },
+		]);
+		expect(s.shell).toEqual([
+			{ id: "t1", start: 1000, background: true },
+			{ id: "t2", start: 1002, end: 1003 },
+		]);
+		expect(settleBackground(s, ["t1"], 5000).shell?.[0]).toEqual({
+			id: "t1",
+			start: 1000,
+			end: 5000,
+		});
 	});
 
 	it("ends a failed or refused command", () => {

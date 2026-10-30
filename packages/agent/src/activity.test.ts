@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ShellRun } from "@claude-lookout/protocol";
 import { afterEach, describe, expect, it } from "vitest";
-import { RepoGit, type SessionGit } from "./activity.ts";
+import { ownerOf, RepoGit, type SessionGit } from "./activity.ts";
 
 /** The session starts at T; commits before it are the project's history. */
 const T = 1_800_000_000;
@@ -364,5 +364,27 @@ describe("RepoGit", () => {
 		const v = await view(dir);
 		expect(v?.git.busy).toEqual({ kind: "rebase", step: 1, total: 1 });
 		expect(v?.gitActivity[0]).toMatchObject({ kind: "rebase", ref: "main", running: true });
+	});
+});
+
+describe("ownerOf", () => {
+	const minute = 60_000;
+	const devServer = { id: "s1", since: 0, shell: [{ start: 0, background: true as const }] };
+	const pusher = {
+		id: "s2",
+		since: 0,
+		shell: [{ start: 0, background: true as const, git: true as const }],
+	};
+
+	it("credits a command left in the background for as long as a foreground one could run", () => {
+		expect(ownerOf([devServer], 5 * minute, 5 * minute, 6 * minute)).toBe("s1");
+	});
+
+	it("stops crediting a background command that doesn't run git after that", () => {
+		expect(ownerOf([devServer], 60 * minute, 60 * minute, 61 * minute)).toBeUndefined();
+	});
+
+	it("keeps crediting a background command that runs git for all of its run", () => {
+		expect(ownerOf([pusher], 60 * minute, 60 * minute, 61 * minute)).toBe("s2");
 	});
 });

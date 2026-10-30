@@ -64,6 +64,10 @@ export interface ShellRun {
 	start: number;
 	/** Missing while it runs. */
 	end?: number;
+	/** Left running in the background; it ends when its task reports back. */
+	background?: true;
+	/** The command runs git itself, so git work during all of a background run is its own. */
+	git?: true;
 }
 
 /** Shell commands remembered per session; older ones fall out of git credit. */
@@ -74,7 +78,13 @@ function trackShell(session: Session, input: HookInput, at: number): void {
 	const e = input.hook_event_name;
 	const id = str(input.tool_use_id);
 	if (input.tool_name === "Bash" && e === "PreToolUse") {
-		const runs = [...(session.shell ?? []), id ? { id, start: at } : { start: at }];
+		const command = str(record(input.tool_input).command) ?? "";
+		const run: ShellRun = {
+			...(id ? { id } : {}),
+			start: at,
+			...(/\bgit\b/.test(command) ? { git: true as const } : {}),
+		};
+		const runs = [...(session.shell ?? []), run];
 		session.shell = runs.slice(-SHELL_RUNS_MAX);
 		return;
 	}
@@ -82,15 +92,20 @@ function trackShell(session: Session, input: HookInput, at: number): void {
 	const ends =
 		input.tool_name === "Bash" &&
 		(e === "PostToolUse" || e === "PostToolUseFailure" || e === "PermissionDenied");
-	// A run that stops or a new prompt means nothing is still running.
+	// A run that stops or a new prompt means nothing in the foreground is still running; a fresh
+	// conversation leaves nothing running at all.
+	const fresh = e === "SessionStart" && (input.source === "startup" || input.source === "clear");
 	const endsAll =
-		e === "Stop" || e === "StopFailure" || e === "SessionEnd" || e === "UserPromptSubmit";
+		fresh || e === "Stop" || e === "StopFailure" || e === "SessionEnd" || e === "UserPromptSubmit";
 	if (!ends && !endsAll) return;
-	session.shell = session.shell.map((run) =>
-		run.end === undefined && (endsAll || (id !== undefined && run.id === id))
-			? { ...run, end: at }
-			: run,
-	);
+	const background = e === "PostToolUse" && startedInBackground(input) !== undefined;
+	session.shell = session.shell.map((run) => {
+		if (run.end !== undefined || (run.background && !fresh)) return run;
+		if (endsAll || (id !== undefined && run.id === id)) {
+			return background ? { ...run, background: true } : { ...run, end: at };
+		}
+		return run;
+	});
 }
 
 /** Tools that put Claude in a blocked state when called. */
@@ -281,7 +296,17 @@ export function settleBackground(
 	if (!session.background) return session;
 	const pending = session.background.filter((id) => !toolUseIds.includes(id));
 	if (pending.length === session.background.length) return session;
-	const { background: _, ...settled } = session;
+	const { background: _, ...rest } = session;
+	const settled: Session = session.shell
+		? {
+				...rest,
+				shell: session.shell.map((run) =>
+					run.background && run.id && toolUseIds.includes(run.id)
+						? { id: run.id, start: run.start, end: at }
+						: run,
+				),
+			}
+		: rest;
 	if (pending.length) return { ...settled, background: pending };
 	if (session.state !== "background") return settled;
 	return resumes && at >= session.since

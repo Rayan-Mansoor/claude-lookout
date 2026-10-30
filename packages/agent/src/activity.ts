@@ -11,6 +11,8 @@ import * as git from "./git.ts";
 
 /** A shell command in the foreground can't run longer than this; Claude Code stops it. */
 const FOREGROUND_MAX_MS = 10 * 60_000;
+/** A background command still unreported after this long is taken to have ended. */
+const BACKGROUND_MAX_MS = 24 * 60 * 60_000;
 const EVENTS_MAX = 30;
 const COMMITS_MAX = 20;
 const DROPPED_SHOWN = 5;
@@ -55,8 +57,15 @@ function subject(text: string): string {
 	return sanitize(text, SUBJECT_MAX);
 }
 
+/**
+ * Until when a command counts as running, for git credit. One left in the background counts as
+ * long as a foreground one could run, and for all of its run only when it runs git itself: a dev
+ * server left running doesn't commit, while you might meanwhile.
+ */
 function runEnd(run: ShellRun, now: number): number {
-	return run.end ?? Math.min(now, run.start + FOREGROUND_MAX_MS);
+	if (!run.background) return run.end ?? Math.min(now, run.start + FOREGROUND_MAX_MS);
+	const limit = run.git ? BACKGROUND_MAX_MS : FOREGROUND_MAX_MS;
+	return Math.min(run.end ?? now, run.start + limit);
 }
 
 /** The session whose shell command was running at some point in [from, to]. */
