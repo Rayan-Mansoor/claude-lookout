@@ -15,6 +15,8 @@ export const paths = {
 	log: () => join(lookoutHome(), "agent.log"),
 	sessions: () => join(lookoutHome(), "sessions.json"),
 	hub: () => join(lookoutHome(), "hub.json"),
+	/** Present while a state change or notification is still on its way out. */
+	hold: () => join(lookoutHome(), "hold"),
 };
 
 /**

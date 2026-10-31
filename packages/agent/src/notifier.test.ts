@@ -11,6 +11,17 @@ function setup(lid = false, failures = 0) {
 		{ gitBranch: () => undefined },
 	);
 	const sent: Notice[] = [];
+	let held = 0;
+	const hold = {
+		take: () => {
+			held++;
+			let done = false;
+			return () => {
+				if (!done) held--;
+				done = true;
+			};
+		},
+	};
 	const publisher: Publisher = {
 		publish: async () => {},
 		notify: async (notice) => {
@@ -20,13 +31,13 @@ function setup(lid = false, failures = 0) {
 		},
 		stop: () => {},
 	};
-	startNotifier(agent, publisher, () => {}, { lidClosed: async () => lid });
+	startNotifier(agent, publisher, () => {}, { lidClosed: async () => lid, hold });
 	const send = (input: Partial<HookInput>) =>
 		agent.handle({
 			input: { session_id: "s1", cwd: "/w/api", ...input } as HookInput,
 			at: Date.now(),
 		});
-	return { sent, send };
+	return { sent, send, held: () => held };
 }
 
 const permission = {
@@ -103,5 +114,27 @@ describe("notifier", () => {
 		send({ hook_event_name: "UserPromptSubmit", prompt: "go" });
 		await vi.advanceTimersByTimeAsync(NOTIFY_DELAY_MS * 2);
 		expect(sent).toEqual([]);
+	});
+
+	it("holds the machine awake until a due notification has gone out", async () => {
+		const { send, held } = setup();
+		send(permission);
+		expect(held()).toBe(1);
+		await vi.advanceTimersByTimeAsync(NOTIFY_DELAY_MS);
+		expect(held()).toBe(0);
+	});
+
+	it("lets go when the prompt is answered, or once every try failed", async () => {
+		const answered = setup();
+		answered.send(permission);
+		answered.send({ hook_event_name: "PostToolUse", tool_name: "Bash" });
+		expect(answered.held()).toBe(0);
+
+		const failed = setup(true, Number.POSITIVE_INFINITY);
+		failed.send(permission);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(failed.held()).toBe(1);
+		await vi.advanceTimersByTimeAsync(RETRY_MS.reduce((sum, ms) => sum + ms, 0));
+		expect(failed.held()).toBe(0);
 	});
 });

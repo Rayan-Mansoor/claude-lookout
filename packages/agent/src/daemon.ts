@@ -12,6 +12,7 @@ import type { Session } from "@claude-lookout/protocol";
 import { Agent } from "./agent.ts";
 import { type Config, loadConfig } from "./config.ts";
 import { gitBranch } from "./git.ts";
+import { fileHold } from "./hold.ts";
 import { lookoutHome, paths } from "./home.ts";
 import type { Request } from "./ipc.ts";
 import { acquireLock, releaseLock } from "./lock.ts";
@@ -130,9 +131,11 @@ export async function runDaemon(): Promise<void> {
 		config.transport.mode === "relay"
 			? await relayPublisher(config.transport, config.space, log)
 			: await directPublisher(config.transport, config.space, log);
-	const publish = throttled(publisher, 250, (err) => log(`publish failed: ${err.message}`));
-	agent.onChange((snapshot) => publish(snapshot, config.machine.id));
-	startNotifier(agent, publisher, log);
+	quietUnlink(paths.hold());
+	const hold = fileHold(paths.hold());
+	const publish = throttled(publisher, 250, (err) => log(`publish failed: ${err.message}`), hold);
+	agent.onChange((snapshot) => publish(snapshot, config.machine.id, { hold: true }));
+	startNotifier(agent, publisher, log, { hold });
 	new ProgressTracker(agent).start();
 	publish(agent.snapshot(), config.machine.id);
 	setInterval(() => publish(agent.snapshot(), config.machine.id), HEARTBEAT_MS);
@@ -162,6 +165,7 @@ export async function runDaemon(): Promise<void> {
 			new Promise((resolve) => setTimeout(resolve, 3000)),
 		]);
 		publisher.stop();
+		quietUnlink(paths.hold());
 		releaseLock(paths.lock());
 		process.exit(0);
 	};

@@ -8,6 +8,7 @@ import {
 	toView,
 } from "@claude-lookout/protocol";
 import type { Agent } from "./agent.ts";
+import { type Hold, noHold } from "./hold.ts";
 import type { Publisher } from "./transport/publisher.ts";
 
 /**
@@ -44,6 +45,8 @@ export const RETRY_MS = [5_000, 20_000, 60_000];
 export interface NotifierOptions {
 	/** Skips the wait when it resolves true; nobody can answer at the keyboard first. */
 	lidClosed?: () => Promise<boolean>;
+	/** Held from the moment a notification is due until it has been sent or called off. */
+	hold?: Hold;
 }
 
 /** Turn state changes into push notifications, once per state entry. */
@@ -54,10 +57,15 @@ export function startNotifier(
 	options: NotifierOptions = {},
 ): void {
 	const isLidClosed = options.lidClosed ?? lidClosed;
-	const pending = new Map<string, { timer?: ReturnType<typeof setTimeout> }>();
+	const hold = options.hold ?? noHold;
+	type Entry = { timer?: ReturnType<typeof setTimeout>; release: () => void };
+	const pending = new Map<string, Entry>();
 
 	const cancel = (id: string) => {
-		clearTimeout(pending.get(id)?.timer);
+		const entry = pending.get(id);
+		if (!entry) return;
+		clearTimeout(entry.timer);
+		entry.release();
 		pending.delete(id);
 	};
 
@@ -66,7 +74,7 @@ export function startNotifier(
 		if (!NOTIFY_STATES.includes(session.state)) return;
 
 		const { id, state, since } = session;
-		const entry: { timer?: ReturnType<typeof setTimeout> } = {};
+		const entry: Entry = { release: hold.take() };
 		pending.set(id, entry);
 		void isLidClosed().then((closed) => {
 			if (pending.get(id) !== entry) return;
@@ -74,9 +82,11 @@ export function startNotifier(
 				() => {
 					pending.delete(id);
 					const current = agent.sessions.get(id);
-					if (!current || current.state !== state || current.since !== since) return;
-					const notice = noticeFor(toView(current, agent.config.level), agent.config.machine.name);
-					if (!notice) return;
+					const notice =
+						current?.state === state && current.since === since
+							? noticeFor(toView(current, agent.config.level), agent.config.machine.name)
+							: undefined;
+					if (!notice) return entry.release();
 					const still = () => {
 						const latest = agent.sessions.get(id);
 						return latest?.state === state && latest.since === since;
@@ -96,7 +106,8 @@ export function startNotifier(
 								// Only while it still says something true.
 								if (still()) await attempt(n + 1);
 							});
-					void attempt(0);
+					// Held until it went out, or every try failed.
+					void attempt(0).finally(entry.release);
 				},
 				closed ? 0 : NOTIFY_DELAY_MS,
 			);
