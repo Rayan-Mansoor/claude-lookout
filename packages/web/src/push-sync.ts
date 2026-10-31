@@ -1,4 +1,10 @@
-import { API, deriveSpace, fromBase64Url, toBase64Url } from "@claude-lookout/protocol";
+import {
+	API,
+	deriveSpace,
+	fromBase64Url,
+	penalisesSilentPush,
+	toBase64Url,
+} from "@claude-lookout/protocol";
 import { getItem, removeItem, setItem } from "./storage.ts";
 
 /**
@@ -23,6 +29,19 @@ async function authorized(viewSecret: string) {
 function keyOf(subscription: PushSubscription): string | undefined {
 	const key = subscription.options.applicationServerKey;
 	return key ? toBase64Url(new Uint8Array(key)) : undefined;
+}
+
+/**
+ * Whether a notification can stay hidden because the dashboard is on screen and in front, where
+ * it already shows what the notification would say. Never on a subscription that is cancelled
+ * for pushes that show nothing (Safari's), where it always shows.
+ */
+export function dashboardShowsIt(
+	windows: readonly { visibilityState: DocumentVisibilityState; focused: boolean }[],
+	endpoint: string | undefined,
+): boolean {
+	if (!endpoint || penalisesSilentPush(endpoint)) return false;
+	return windows.some((w) => w.visibilityState === "visible" && w.focused);
 }
 
 /** True when the person turned notifications off on this device. */

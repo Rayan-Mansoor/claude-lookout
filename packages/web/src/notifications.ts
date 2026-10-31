@@ -27,6 +27,23 @@ function workerReady(): Promise<ServiceWorkerRegistration> {
 	]);
 }
 
+/**
+ * Close this device's notifications whenever the dashboard comes on screen: it shows everything
+ * they point to, the way a chat app clears its notifications once opened.
+ */
+export function clearNotificationsOnView(): void {
+	if (!supported()) return;
+	const clear = async () => {
+		if (document.visibilityState !== "visible") return;
+		const registration = await navigator.serviceWorker.getRegistration();
+		for (const notification of (await registration?.getNotifications()) ?? []) {
+			notification.close();
+		}
+	};
+	void clear().catch(() => {});
+	document.addEventListener("visibilitychange", () => void clear().catch(() => {}));
+}
+
 /** Stop notifications for this device, e.g. when it forgets the view link. */
 export async function forgetPush(viewSecret: string): Promise<void> {
 	if (!supported()) return;

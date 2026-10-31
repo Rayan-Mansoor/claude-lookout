@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import { deriveSpace, type Notice, open, type Sealed } from "@claude-lookout/protocol";
-import { optedOut, syncSubscription } from "./push-sync.ts";
+import { dashboardShowsIt, optedOut, syncSubscription } from "./push-sync.ts";
 import { getItem } from "./storage.ts";
 
 declare const self: ServiceWorkerGlobalScope;
@@ -135,22 +135,31 @@ async function clearNotice(tag: string): Promise<void> {
 	}
 }
 
+async function showNotice(notice: Notice): Promise<void> {
+	const [windows, subscription] = await Promise.all([
+		self.clients.matchAll({ type: "window", includeUncontrolled: true }),
+		self.registration.pushManager.getSubscription(),
+	]);
+	// You're looking at the dashboard, which already shows this; like a chat app, stay quiet.
+	if (dashboardShowsIt(windows, subscription?.endpoint)) return;
+	// Chrome reads `renotify`, which TypeScript's DOM types don't list yet.
+	const options: NotificationOptions & { renotify: boolean } = {
+		body: notice.body,
+		tag: notice.tag,
+		// A new need replaces the old notification for that session; still alert for it.
+		renotify: true,
+		icon: "/icon-192.png",
+		// Android draws the badge from its transparency alone, so it needs a white silhouette.
+		badge: "/badge-96.png",
+	};
+	await self.registration.showNotification(notice.title, options);
+}
+
 self.addEventListener("push", (event) => {
 	event.waitUntil(
 		readNotice(event.data).then((notice) => {
 			if (!notice) return;
-			if (notice.kind === "clear") return clearNotice(notice.tag);
-			// Chrome reads `renotify`, which TypeScript's DOM types don't list yet.
-			const options: NotificationOptions & { renotify: boolean } = {
-				body: notice.body,
-				tag: notice.tag,
-				// A new need replaces the old notification for that session; still alert for it.
-				renotify: true,
-				icon: "/icon-192.png",
-				// Android draws the badge from its transparency alone, so it needs a white silhouette.
-				badge: "/badge-96.png",
-			};
-			return self.registration.showNotification(notice.title, options);
+			return notice.kind === "clear" ? clearNotice(notice.tag) : showNotice(notice);
 		}),
 	);
 });
