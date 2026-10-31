@@ -2,6 +2,7 @@ import {
 	hashToken,
 	type MachineUpdate,
 	type NotifyResult,
+	penalisesSilentPush,
 	type Sealed,
 	type SpaceRegistration,
 } from "@claude-lookout/protocol";
@@ -269,20 +270,27 @@ export class Hub {
 		return json(200, { ok: true });
 	}
 
-	/** Forward a sealed notification to every subscribed device. */
+	/**
+	 * Forward a sealed notification to every subscribed device; with `?silent=1`, only to those
+	 * that tolerate a push that shows nothing.
+	 */
 	private async notify(space: string, request: Request): Promise<Response> {
 		if (!(await this.authorize(space, request, "publishHash"))) return error(401, "unauthorized");
 		const sealed = await readJson<Sealed>(request);
 		if (!isSealed(sealed)) return error(400, "invalid notification");
-		const payload = JSON.stringify({ sealed });
+		const silent = new URL(request.url).searchParams.get("silent") === "1";
+		// Marked, so a device that can't read it (its link changed) knows not to raise an alarm.
+		const payload = JSON.stringify(silent ? { sealed, quiet: true } : { sealed });
 		if (payload.length > MAX_NOTIFICATION) return error(413, "notification too large");
-		const subs = await this.store.list<PushSubscriptionJSON>(`sub:${space}:`);
-		if (subs.size === 0) return json(200, { devices: 0, delivered: 0, failures: [] });
+		const subs = [...(await this.store.list<PushSubscriptionJSON>(`sub:${space}:`))].filter(
+			([, sub]) => !(silent && penalisesSilentPush(sub.endpoint)),
+		);
+		if (subs.length === 0) return json(200, { devices: 0, delivered: 0, failures: [] });
 		const keys = await this.vapid(space);
 		const subject = this.options.pushSubject ?? DEFAULT_PUSH_SUBJECT;
 		const deliver = this.options.sendPush ?? ((s, p, k) => sendPush(s, p, k, subject));
 		const results = await Promise.all(
-			[...subs].map(async ([key, sub]) => {
+			subs.map(async ([key, sub]) => {
 				// Only the push service's own answer drops a subscription; a network error keeps it.
 				const status = await deliver(
 					{ endpoint: sub.endpoint, keys: sub.keys },

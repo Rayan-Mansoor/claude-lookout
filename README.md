@@ -66,7 +66,7 @@ npx claude-lookout status
 
 ## Notifications
 
-Tap **Turn on** on the dashboard to get a notification when a session needs permission, asks a question, has a plan to approve, or finishes. It waits 10 seconds first, so prompts you answer at the keyboard don't also buzz your phone. On a Mac with the lid closed it sends right away, since nobody is at the keyboard.
+Tap **Turn on** on the dashboard to get a notification when a session needs permission, asks a question, has a plan to approve, or finishes. It waits 10 seconds first, so prompts you answer at the keyboard don't also buzz your phone. On a Mac with the lid closed it sends right away, since nobody is at the keyboard. Once you've dealt with a session elsewhere, its notification disappears from your phone.
 
 Notifications use standard Web Push, so they are free and need no app. Two requirements:
 

@@ -64,10 +64,10 @@ export async function relayPublisher(
 			}
 			if (!res.ok) throw new Error(`relay refused the update: HTTP ${res.status}`);
 		},
-		async notify(notice: Notice) {
+		async notify(notice: Notice, options) {
 			if (!registered) await register();
 			const send = async () =>
-				fetch(`${base}${API.space(keys.spaceId)}/push/notify`, {
+				fetch(`${base}${API.notify(keys.spaceId, options?.silent)}`, {
 					method: "POST",
 					headers: { "content-type": "application/json", authorization: `Bearer ${publishToken}` },
 					body: JSON.stringify(await seal(keys.key, notice)),

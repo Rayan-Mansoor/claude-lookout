@@ -4,8 +4,11 @@ import { type Hold, noHold } from "../hold.ts";
 /** Somewhere snapshots go: the dashboard on this machine, or a relay. */
 export interface Publisher {
 	publish(snapshot: Snapshot, machineId: string): Promise<void>;
-	/** Send a push notification to every device that turned them on. */
-	notify(notice: Notice): Promise<NotifyResult>;
+	/**
+	 * Send a push notification to every device that turned them on. `silent` marks one that may
+	 * show nothing (a clear), so it skips devices that penalise that.
+	 */
+	notify(notice: Notice, options?: { silent?: boolean }): Promise<NotifyResult>;
 	stop(): void;
 }
 

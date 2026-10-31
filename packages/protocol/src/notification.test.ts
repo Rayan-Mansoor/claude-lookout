@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { noticeFor } from "./notification.ts";
+import { clearNoticeFor, noticeFor, penalisesSilentPush } from "./notification.ts";
 import type { SessionView } from "./snapshot.ts";
 
 const view = (state: SessionView["state"], fields: Record<string, unknown>): SessionView => ({
@@ -9,6 +9,25 @@ const view = (state: SessionView["state"], fields: Record<string, unknown>): Ses
 	startedAt: 0,
 	updatedAt: 0,
 	fields: { project: "api", ...fields },
+});
+
+describe("penalisesSilentPush", () => {
+	it("singles out Apple's push service", () => {
+		expect(penalisesSilentPush("https://web.push.apple.com/abc")).toBe(true);
+		expect(penalisesSilentPush("https://fcm.googleapis.com/fcm/send/abc")).toBe(false);
+		expect(penalisesSilentPush("not a url")).toBe(false);
+	});
+});
+
+describe("clearNoticeFor", () => {
+	it("takes back the session's notification by its tag", () => {
+		expect(clearNoticeFor(view("working", {}), "Mac")).toEqual({
+			kind: "clear",
+			title: "api no longer needs you",
+			body: "Dealt with elsewhere · Mac",
+			tag: "s1",
+		});
+	});
 });
 
 describe("noticeFor", () => {

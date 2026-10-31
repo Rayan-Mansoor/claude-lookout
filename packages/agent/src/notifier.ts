@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import {
+	clearNoticeFor,
 	NOTIFY_STATES,
 	type Notice,
 	type NotifyResult,
@@ -33,7 +34,8 @@ export function lidClosed(): Promise<boolean> {
 /** One log line per notification, so a missed one can be explained. */
 export function describeDelivery(notice: Notice, result: NotifyResult): string {
 	if (result.devices === 0) return `no devices have notifications on: ${notice.title}`;
-	const line = `notified ${result.delivered}/${result.devices} devices: ${notice.title}`;
+	const verb = notice.kind === "clear" ? "cleared on" : "notified";
+	const line = `${verb} ${result.delivered}/${result.devices} devices: ${notice.title}`;
 	return result.failures.length > 0
 		? `${line} (push service answered ${result.failures.join(", ")})`
 		: line;
@@ -49,7 +51,10 @@ export interface NotifierOptions {
 	hold?: Hold;
 }
 
-/** Turn state changes into push notifications, once per state entry. */
+/**
+ * Turn state changes into push notifications, once per state entry, and take a notification
+ * back once its session moves on to something that doesn't need you.
+ */
 export function startNotifier(
 	agent: Agent,
 	publisher: Publisher,
@@ -60,6 +65,19 @@ export function startNotifier(
 	const hold = options.hold ?? noHold;
 	type Entry = { timer?: ReturnType<typeof setTimeout>; release: () => void };
 	const pending = new Map<string, Entry>();
+	/** Sessions with a notification on at least one device, which a clear can take back. */
+	const shown = new Set<string>();
+
+	const clear = (session: Session) => {
+		shown.delete(session.id);
+		const notice = clearNoticeFor(toView(session, agent.config.level), agent.config.machine.name);
+		const release = hold.take();
+		publisher
+			.notify(notice, { silent: true })
+			.then((result) => log(describeDelivery(notice, result)))
+			.catch((err: Error) => log(`clearing a notification failed: ${err.message}`))
+			.finally(release);
+	};
 
 	const cancel = (id: string) => {
 		const entry = pending.get(id);
@@ -71,7 +89,11 @@ export function startNotifier(
 
 	agent.onTransition((session: Session) => {
 		cancel(session.id);
-		if (!NOTIFY_STATES.includes(session.state)) return;
+		if (!NOTIFY_STATES.includes(session.state)) {
+			if (shown.has(session.id)) clear(session);
+			return;
+		}
+		// Moving between states that notify needs no clear: the next notification replaces this one.
 
 		const { id, state, since } = session;
 		const entry: Entry = { release: hold.take() };
@@ -94,7 +116,14 @@ export function startNotifier(
 					const attempt = (n: number): Promise<void> =>
 						publisher
 							.notify(notice)
-							.then((result) => log(describeDelivery(notice, result)))
+							.then((result) => {
+								log(describeDelivery(notice, result));
+								if (result.delivered === 0) return;
+								shown.add(id);
+								// Moved on while the notification was on its way: take it back now.
+								const latest = agent.sessions.get(id);
+								if (latest && !NOTIFY_STATES.includes(latest.state)) clear(latest);
+							})
 							.catch(async (err: Error) => {
 								const wait = RETRY_MS[n];
 								if (wait === undefined) {

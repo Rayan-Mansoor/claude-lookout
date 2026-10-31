@@ -5,12 +5,13 @@ import { defaultConfig } from "./config.ts";
 import { describeDelivery, NOTIFY_DELAY_MS, RETRY_MS, startNotifier } from "./notifier.ts";
 import type { Publisher } from "./transport/publisher.ts";
 
-function setup(lid = false, failures = 0) {
+function setup(lid = false, failures = 0, devices = 1, sendMs = 0) {
 	const agent = new Agent(
 		{ ...defaultConfig(), machine: { id: "m", name: "Studio" } },
 		{ gitBranch: () => undefined },
 	);
 	const sent: Notice[] = [];
+	const silent: boolean[] = [];
 	let held = 0;
 	const hold = {
 		take: () => {
@@ -24,10 +25,12 @@ function setup(lid = false, failures = 0) {
 	};
 	const publisher: Publisher = {
 		publish: async () => {},
-		notify: async (notice) => {
+		notify: async (notice, options) => {
 			if (failures-- > 0) throw new Error("fetch failed");
+			if (sendMs) await new Promise((resolve) => setTimeout(resolve, sendMs));
 			sent.push(notice);
-			return { devices: 1, delivered: 1, failures: [] };
+			silent.push(options?.silent === true);
+			return { devices, delivered: devices, failures: [] };
 		},
 		stop: () => {},
 	};
@@ -37,7 +40,7 @@ function setup(lid = false, failures = 0) {
 			input: { session_id: "s1", cwd: "/w/api", ...input } as HookInput,
 			at: Date.now(),
 		});
-	return { sent, send, held: () => held };
+	return { sent, silent, send, held: () => held };
 }
 
 const permission = {
@@ -136,5 +139,95 @@ describe("notifier", () => {
 		expect(failed.held()).toBe(1);
 		await vi.advanceTimersByTimeAsync(RETRY_MS.reduce((sum, ms) => sum + ms, 0));
 		expect(failed.held()).toBe(0);
+	});
+
+	describe("clearing", () => {
+		const working = { hook_event_name: "UserPromptSubmit", prompt: "go on" };
+
+		it("takes the notification back once the session is working again", async () => {
+			const { sent, silent, send, held } = setup();
+			send(permission);
+			await vi.advanceTimersByTimeAsync(NOTIFY_DELAY_MS);
+			send({ hook_event_name: "PostToolUse", tool_name: "Bash" });
+			expect(held()).toBe(1);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(sent.map((n) => n.kind)).toEqual([undefined, "clear"]);
+			expect(sent[1]).toMatchObject({ tag: "s1", title: "api no longer needs you" });
+			expect(silent).toEqual([false, true]);
+			expect(held()).toBe(0);
+		});
+
+		it("takes it back when the session closes", async () => {
+			const { sent, send } = setup();
+			send({ hook_event_name: "Stop", last_assistant_message: "Done." });
+			await vi.advanceTimersByTimeAsync(NOTIFY_DELAY_MS);
+			send({ hook_event_name: "SessionEnd" });
+			await vi.advanceTimersByTimeAsync(0);
+			expect(sent.map((n) => n.kind)).toEqual([undefined, "clear"]);
+		});
+
+		it("clears only once per notification", async () => {
+			const { sent, send } = setup();
+			send({ hook_event_name: "Stop", last_assistant_message: "Done." });
+			await vi.advanceTimersByTimeAsync(NOTIFY_DELAY_MS);
+			send(working);
+			send({ hook_event_name: "PostToolUse", tool_name: "Bash" });
+			await vi.advanceTimersByTimeAsync(NOTIFY_DELAY_MS);
+			expect(sent.map((n) => n.kind)).toEqual([undefined, "clear"]);
+		});
+
+		it("lets the next notification replace it instead of clearing between them", async () => {
+			const { sent, send } = setup();
+			send(permission);
+			await vi.advanceTimersByTimeAsync(NOTIFY_DELAY_MS);
+			send({ hook_event_name: "Stop", last_assistant_message: "Done." });
+			await vi.advanceTimersByTimeAsync(NOTIFY_DELAY_MS);
+			expect(sent.map((n) => n.kind)).toEqual([undefined, undefined]);
+		});
+
+		it("still clears the older one when the next is answered before it is sent", async () => {
+			const { sent, send } = setup();
+			send(permission);
+			await vi.advanceTimersByTimeAsync(NOTIFY_DELAY_MS);
+			send({ hook_event_name: "Stop", last_assistant_message: "Done." });
+			await vi.advanceTimersByTimeAsync(1000);
+			send(working);
+			await vi.advanceTimersByTimeAsync(NOTIFY_DELAY_MS);
+			expect(sent.map((n) => n.kind)).toEqual([undefined, "clear"]);
+		});
+
+		it("has nothing to clear when no device got the notification", async () => {
+			const none = setup(false, 0, 0);
+			none.send(permission);
+			await vi.advanceTimersByTimeAsync(NOTIFY_DELAY_MS);
+			none.send(working);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(none.sent.map((n) => n.kind)).toEqual([undefined]);
+
+			const failed = setup(false, Number.POSITIVE_INFINITY);
+			failed.send(permission);
+			await vi.advanceTimersByTimeAsync(NOTIFY_DELAY_MS);
+			failed.send(working);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(failed.sent).toEqual([]);
+		});
+
+		it("takes it back right away when answered while it was being sent", async () => {
+			const { sent, send } = setup(false, 0, 1, 500);
+			send(permission);
+			await vi.advanceTimersByTimeAsync(NOTIFY_DELAY_MS + 100);
+			send(working);
+			await vi.advanceTimersByTimeAsync(1000);
+			expect(sent.map((n) => n.kind)).toEqual([undefined, "clear"]);
+		});
+
+		it("never clears a notification that was answered before it went out", async () => {
+			const { sent, send } = setup();
+			send(permission);
+			await vi.advanceTimersByTimeAsync(2000);
+			send(working);
+			await vi.advanceTimersByTimeAsync(NOTIFY_DELAY_MS * 2);
+			expect(sent).toEqual([]);
+		});
 	});
 });

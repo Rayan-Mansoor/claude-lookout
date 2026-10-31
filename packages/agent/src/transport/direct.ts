@@ -67,10 +67,10 @@ export async function directPublisher(
 			const sealed = await seal(keys.key, snapshot);
 			await call(API.machine(keys.spaceId, machineId), "PUT", sealed, publishToken);
 		},
-		async notify(notice: Notice) {
+		async notify(notice: Notice, options) {
 			const sealed = await seal(keys.key, notice);
 			const res = await call(
-				`${API.space(keys.spaceId)}/push/notify`,
+				API.notify(keys.spaceId, options?.silent),
 				"POST",
 				sealed,
 				publishToken,

@@ -11,16 +11,20 @@ const FALLBACK: Notice = {
 	tag: "lookout",
 };
 
-/** Decrypt a pushed notice with the view secret this device holds. */
-async function readNotice(data: PushMessageData | null): Promise<Notice> {
+/**
+ * Decrypt a pushed notice with the view secret this device holds. One it can't read becomes a
+ * general alert, unless it was one that only takes a notification back: then nothing at all.
+ */
+async function readNotice(data: PushMessageData | null): Promise<Notice | undefined> {
+	let pushed: { sealed?: Sealed; quiet?: boolean } | undefined;
 	try {
-		const sealed = (data?.json() as { sealed?: Sealed } | undefined)?.sealed;
+		pushed = data?.json() as typeof pushed;
 		const secret = await getItem<string>("viewSecret");
-		if (!secret || !sealed) return FALLBACK;
+		if (!secret || !pushed?.sealed) throw new Error("unreadable");
 		const { key } = await deriveSpace(secret);
-		return await open<Notice>(key, sealed);
+		return await open<Notice>(key, pushed.sealed);
 	} catch {
-		return FALLBACK;
+		return pushed?.quiet ? undefined : FALLBACK;
 	}
 }
 
@@ -124,9 +128,18 @@ self.addEventListener("fetch", (event) => {
 	);
 });
 
+/** Take back the notification of a session that no longer needs you. */
+async function clearNotice(tag: string): Promise<void> {
+	for (const notification of await self.registration.getNotifications({ tag })) {
+		notification.close();
+	}
+}
+
 self.addEventListener("push", (event) => {
 	event.waitUntil(
 		readNotice(event.data).then((notice) => {
+			if (!notice) return;
+			if (notice.kind === "clear") return clearNotice(notice.tag);
 			// Chrome reads `renotify`, which TypeScript's DOM types don't list yet.
 			const options: NotificationOptions & { renotify: boolean } = {
 				body: notice.body,

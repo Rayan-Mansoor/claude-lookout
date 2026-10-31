@@ -145,6 +145,25 @@ describe("Hub", () => {
 		await notify();
 		expect(sent.map((s) => s.endpoint)).toEqual(["https://fcm.googleapis.com/fcm/send/phone"]);
 
+		// A clear may show nothing, which Safari punishes by dropping the subscription.
+		expect((await subscribe("https://web.push.apple.com/iphone", "c")).status).toBe(200);
+		sent.length = 0;
+		await notify();
+		expect(sent.map((s) => s.endpoint)).toEqual([
+			"https://fcm.googleapis.com/fcm/send/phone",
+			"https://web.push.apple.com/iphone",
+		]);
+		sent.length = 0;
+		const clear = await call(API.notify(spaceId, true), {
+			method: "POST",
+			token: publishToken,
+			body: JSON.stringify(sealed),
+		});
+		expect(await clear.json()).toEqual({ devices: 1, delivered: 1, failures: [] });
+		expect(sent.map((s) => s.endpoint)).toEqual(["https://fcm.googleapis.com/fcm/send/phone"]);
+		// Marked, so a device that can't read it stays silent rather than raise a false alarm.
+		expect(JSON.parse(sent[0]?.payload ?? "")).toEqual({ sealed, quiet: true });
+
 		const asViewer = await call(`${API.space(spaceId)}/push/notify`, {
 			method: "POST",
 			token: viewToken,

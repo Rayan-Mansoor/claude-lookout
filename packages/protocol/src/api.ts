@@ -34,4 +34,10 @@ export const API = {
 	space: (space: string) => `/api/spaces/${space}`,
 	machine: (space: string, machine: string) => `/api/spaces/${space}/machines/${machine}`,
 	events: (space: string) => `/api/spaces/${space}/events`,
+	/**
+	 * Push a sealed notice to the space's devices. `silent` marks one that may show nothing (a
+	 * clear); the relay then skips devices whose browsers penalise that, which today is Apple's.
+	 */
+	notify: (space: string, silent = false) =>
+		`/api/spaces/${space}/push/notify${silent ? "?silent=1" : ""}`,
 };
