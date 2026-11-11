@@ -3,3 +3,5 @@ dist/
 .wrangler/
 *.log
 .DS_Store
+packages/agent/README.md
+packages/agent/LICENSE

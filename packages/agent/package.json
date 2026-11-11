@@ -1,8 +1,27 @@
 {
 	"name": "claude-lookout",
 	"version": "0.1.0",
-	"description": "See what your local Claude Code sessions are doing from any device: read-only, end-to-end encrypted, no Claude login on the viewer.",
+	"description": "Walk away from your desk and know when Claude Code needs you: follow your local sessions from your phone, read-only and end-to-end encrypted, with no Claude login.",
 	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/rayan-mansoor/claude-lookout.git",
+		"directory": "packages/agent"
+	},
+	"homepage": "https://github.com/rayan-mansoor/claude-lookout#readme",
+	"bugs": "https://github.com/rayan-mansoor/claude-lookout/issues",
+	"keywords": [
+		"claude",
+		"claude-code",
+		"claude-code-hooks",
+		"dashboard",
+		"monitor",
+		"notifications",
+		"web-push",
+		"end-to-end-encryption",
+		"mobile",
+		"read-only"
+	],
 	"type": "module",
 	"bin": {
 		"claude-lookout": "./dist/claude-lookout.js"
@@ -13,7 +32,8 @@
 	"scripts": {
 		"build": "vite build && node -e \"require('fs').cpSync('../web/dist', 'dist/web', { recursive: true })\"",
 		"typecheck": "tsc -p tsconfig.json",
-		"prepublishOnly": "npm run build"
+		"prepublishOnly": "npm run build",
+		"prepack": "node scripts/npm-files.mjs"
 	},
 	"devDependencies": {
 		"@claude-lookout/protocol": "*",
